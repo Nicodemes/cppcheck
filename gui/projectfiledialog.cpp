@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2018 Cppcheck team.
+ * Copyright (C) 2007-2021 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,23 +16,19 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <QWidget>
-#include <QDialog>
-#include <QString>
-#include <QStringList>
+#include "projectfiledialog.h"
+
 #include <QFileInfo>
 #include <QFileDialog>
-#include <QInputDialog>
 #include <QDir>
 #include <QSettings>
-#include <QProcess>
 #include "common.h"
 #include "newsuppressiondialog.h"
-#include "projectfiledialog.h"
 #include "checkthread.h"
 #include "projectfile.h"
 #include "library.h"
 #include "platforms.h"
+#include "importproject.h"
 
 /** Return paths from QListWidget */
 static QStringList getPaths(const QListWidget *list)
@@ -58,6 +54,19 @@ static const cppcheck::Platform::PlatformType builtinPlatforms[] = {
 
 static const int numberOfBuiltinPlatforms = sizeof(builtinPlatforms) / sizeof(builtinPlatforms[0]);
 
+QStringList ProjectFileDialog::getProjectConfigs(const QString &fileName)
+{
+    if (!fileName.endsWith(".sln") && !fileName.endsWith(".vcxproj"))
+        return QStringList();
+    QStringList ret;
+    ImportProject importer;
+    Settings projSettings;
+    importer.import(fileName.toStdString(), &projSettings);
+    for (const std::string &cfg : importer.getVSConfigs())
+        ret << QString::fromStdString(cfg);
+    return ret;
+}
+
 ProjectFileDialog::ProjectFileDialog(ProjectFile *projectFile, QWidget *parent)
     : QDialog(parent)
     , mProjectFile(projectFile)
@@ -75,16 +84,12 @@ ProjectFileDialog::ProjectFileDialog(ProjectFile *projectFile, QWidget *parent)
     // Checkboxes for the libraries..
     const QString applicationFilePath = QCoreApplication::applicationFilePath();
     const QString appPath = QFileInfo(applicationFilePath).canonicalPath();
-    QSettings settings;
-#ifdef CFGDIR
-    const QString cfgdir = CFGDIR;
-#endif
-    const QString datadir = settings.value("DATADIR",QString()).toString();
+    const QString datadir = getDataDir();
     QStringList searchPaths;
     searchPaths << appPath << appPath + "/cfg" << inf.canonicalPath();
-#ifdef CFGDIR
-    if (!cfgdir.isEmpty())
-        searchPaths << cfgdir << cfgdir + "/cfg";
+#ifdef FILESDIR
+    if (FILESDIR[0])
+        searchPaths << FILESDIR << FILESDIR "/cfg";
 #endif
     if (!datadir.isEmpty())
         searchPaths << datadir << datadir + "/cfg";
@@ -103,7 +108,7 @@ ProjectFileDialog::ProjectFileDialog(ProjectFile *projectFile, QWidget *parent)
             Library lib;
             const QString fullfilename = sp + "/" + library;
             const Library::Error err = lib.load(nullptr, fullfilename.toLatin1());
-            if (err.errorcode != Library::OK)
+            if (err.errorcode != Library::ErrorCode::OK)
                 continue;
             // Working std.cfg found
             stdLibraryFilename = fullfilename;
@@ -124,12 +129,12 @@ ProjectFileDialog::ProjectFileDialog(ProjectFile *projectFile, QWidget *parent)
                 Library lib;
                 const QString fullfilename = sp + "/" + library;
                 Library::Error err = lib.load(nullptr, fullfilename.toLatin1());
-                if (err.errorcode != Library::OK) {
+                if (err.errorcode != Library::ErrorCode::OK) {
                     // Some libraries depend on std.cfg so load it first and test again
                     lib.load(nullptr, stdLibraryFilename.toLatin1());
                     err = lib.load(nullptr, fullfilename.toLatin1());
                 }
-                if (err.errorcode != Library::OK)
+                if (err.errorcode != Library::ErrorCode::OK)
                     continue;
             }
             library.chop(4);
@@ -139,7 +144,7 @@ ProjectFileDialog::ProjectFileDialog(ProjectFile *projectFile, QWidget *parent)
                 libs << library;
         }
     }
-    qSort(libs);
+    libs.sort();
     mUI.mLibraries->clear();
     for (const QString &lib : libs) {
         QListWidgetItem* item = new QListWidgetItem(lib, mUI.mLibraries);
@@ -149,8 +154,8 @@ ProjectFileDialog::ProjectFileDialog(ProjectFile *projectFile, QWidget *parent)
 
     // Platforms..
     Platforms platforms;
-    for (int i = 0; i < numberOfBuiltinPlatforms; i++)
-        mUI.mComboBoxPlatform->addItem(platforms.get(builtinPlatforms[i]).mTitle);
+    for (cppcheck::Platform::PlatformType builtinPlatform : builtinPlatforms)
+        mUI.mComboBoxPlatform->addItem(platforms.get(builtinPlatform).mTitle);
     QStringList platformFiles;
     foreach (QString sp, searchPaths) {
         if (sp.endsWith("/cfg"))
@@ -170,7 +175,7 @@ ProjectFileDialog::ProjectFileDialog(ProjectFile *projectFile, QWidget *parent)
                 platformFiles << platformFile;
         }
     }
-    qSort(platformFiles);
+    platformFiles.sort();
     mUI.mComboBoxPlatform->addItems(platformFiles);
 
     mUI.mEditTags->setValidator(new QRegExpValidator(QRegExp("[a-zA-Z0-9 ;]*"),this));
@@ -189,6 +194,7 @@ ProjectFileDialog::ProjectFileDialog(ProjectFile *projectFile, QWidget *parent)
     connect(mUI.mBtnEditInclude, &QPushButton::clicked, this, &ProjectFileDialog::editIncludeDir);
     connect(mUI.mBtnRemoveInclude, &QPushButton::clicked, this, &ProjectFileDialog::removeIncludeDir);
     connect(mUI.mBtnAddIgnorePath, SIGNAL(clicked()), this, SLOT(addExcludePath()));
+    connect(mUI.mBtnAddIgnoreFile, SIGNAL(clicked()), this, SLOT(addExcludeFile()));
     connect(mUI.mBtnEditIgnorePath, &QPushButton::clicked, this, &ProjectFileDialog::editExcludePath);
     connect(mUI.mBtnRemoveIgnorePath, &QPushButton::clicked, this, &ProjectFileDialog::removeExcludePath);
     connect(mUI.mBtnIncludeUp, &QPushButton::clicked, this, &ProjectFileDialog::moveIncludePathUp);
@@ -197,7 +203,8 @@ ProjectFileDialog::ProjectFileDialog(ProjectFile *projectFile, QWidget *parent)
     connect(mUI.mBtnRemoveSuppression, &QPushButton::clicked, this, &ProjectFileDialog::removeSuppression);
     connect(mUI.mListSuppressions, &QListWidget::doubleClicked, this, &ProjectFileDialog::editSuppression);
     connect(mUI.mBtnBrowseMisraFile, &QPushButton::clicked, this, &ProjectFileDialog::browseMisraFile);
-
+    connect(mUI.mChkAllVsConfigs, &QCheckBox::clicked, this, &ProjectFileDialog::checkAllVSConfigs);
+    connect(mUI.mBtnNormalAnalysis, &QCheckBox::toggled, mUI.mBtnSafeClasses, &QCheckBox::setEnabled);
     loadFromProjectFile(projectFile);
 }
 
@@ -224,10 +231,21 @@ static void updateAddonCheckBox(QCheckBox *cb, const ProjectFile *projectFile, c
 {
     if (projectFile)
         cb->setChecked(projectFile->getAddons().contains(addon));
-    if (CheckThread::getAddonFilePath(dataDir, addon + ".py").isEmpty()) {
+    if (ProjectFile::getAddonFilePath(dataDir, addon).isEmpty()) {
         cb->setEnabled(false);
         cb->setText(cb->text() + QObject::tr(" (Not found)"));
     }
+}
+
+void ProjectFileDialog::checkAllVSConfigs()
+{
+    if (mUI.mChkAllVsConfigs->isChecked()) {
+        for (int row = 0; row < mUI.mListVsConfigs->count(); ++row) {
+            QListWidgetItem *item = mUI.mListVsConfigs->item(row);
+            item->setCheckState(Qt::Checked);
+        }
+    }
+    mUI.mListVsConfigs->setEnabled(!mUI.mChkAllVsConfigs->isChecked());
 }
 
 void ProjectFileDialog::loadFromProjectFile(const ProjectFile *projectFile)
@@ -240,9 +258,24 @@ void ProjectFileDialog::loadFromProjectFile(const ProjectFile *projectFile)
     setCheckPaths(projectFile->getCheckPaths());
     setImportProject(projectFile->getImportProject());
     mUI.mChkAllVsConfigs->setChecked(projectFile->getAnalyzeAllVsConfigs());
+    setProjectConfigurations(getProjectConfigs(mUI.mEditImportProject->text()));
+    for (int row = 0; row < mUI.mListVsConfigs->count(); ++row) {
+        QListWidgetItem *item = mUI.mListVsConfigs->item(row);
+        if (projectFile->getAnalyzeAllVsConfigs() || projectFile->getVsConfigurations().contains(item->text()))
+            item->setCheckState(Qt::Checked);
+        else
+            item->setCheckState(Qt::Unchecked);
+    }
     mUI.mCheckHeaders->setChecked(projectFile->getCheckHeaders());
     mUI.mCheckUnusedTemplates->setChecked(projectFile->getCheckUnusedTemplates());
     mUI.mMaxCtuDepth->setValue(projectFile->getMaxCtuDepth());
+    mUI.mMaxTemplateRecursion->setValue(projectFile->getMaxTemplateRecursion());
+    if (projectFile->clangParser)
+        mUI.mBtnClangParser->setChecked(true);
+    else
+        mUI.mBtnCppcheckParser->setChecked(true);
+    mUI.mBtnSafeClasses->setChecked(projectFile->safeChecks.classes);
+    mUI.mBtnBugHunting->setChecked(projectFile->bugHunting);
     setExcludedPaths(projectFile->getExcludedPaths());
     setLibraries(projectFile->getLibraries());
     const QString platform = projectFile->getPlatform();
@@ -274,8 +307,25 @@ void ProjectFileDialog::loadFromProjectFile(const ProjectFile *projectFile)
     mUI.mComboBoxPlatform->setCurrentText(projectFile->getPlatform());
     setSuppressions(projectFile->getSuppressions());
 
+    // Human knowledge..
+    /*
+    mUI.mListUnknownFunctionReturn->clear();
+    mUI.mListUnknownFunctionReturn->addItem("rand()");
+    for (int row = 0; row < mUI.mListUnknownFunctionReturn->count(); ++row) {
+        QListWidgetItem *item = mUI.mListUnknownFunctionReturn->item(row);
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable); // set checkable flag
+        const bool unknownValues = projectFile->getCheckUnknownFunctionReturn().contains(item->text());
+        item->setCheckState(unknownValues ? Qt::Checked : Qt::Unchecked); // AND initialize check state
+    }
+    mUI.mCheckSafeClasses->setChecked(projectFile->getSafeChecks().classes);
+    mUI.mCheckSafeExternalFunctions->setChecked(projectFile->getSafeChecks().externalFunctions);
+    mUI.mCheckSafeInternalFunctions->setChecked(projectFile->getSafeChecks().internalFunctions);
+    mUI.mCheckSafeExternalVariables->setChecked(projectFile->getSafeChecks().externalVariables);
+    */
+
+    // Addons..
     QSettings settings;
-    const QString dataDir = settings.value("DATADIR", QString()).toString();
+    const QString dataDir = getDataDir();
     updateAddonCheckBox(mUI.mAddonThreadSafety, projectFile, dataDir, "threadsafety");
     updateAddonCheckBox(mUI.mAddonY2038, projectFile, dataDir, "y2038");
     updateAddonCheckBox(mUI.mAddonCert, projectFile, dataDir, "cert");
@@ -307,15 +357,20 @@ void ProjectFileDialog::saveToProjectFile(ProjectFile *projectFile) const
     projectFile->setBuildDir(getBuildDir());
     projectFile->setImportProject(getImportProject());
     projectFile->setAnalyzeAllVsConfigs(mUI.mChkAllVsConfigs->isChecked());
+    projectFile->setVSConfigurations(getProjectConfigurations());
     projectFile->setCheckHeaders(mUI.mCheckHeaders->isChecked());
     projectFile->setCheckUnusedTemplates(mUI.mCheckUnusedTemplates->isChecked());
     projectFile->setMaxCtuDepth(mUI.mMaxCtuDepth->value());
+    projectFile->setMaxTemplateRecursion(mUI.mMaxTemplateRecursion->value());
     projectFile->setIncludes(getIncludePaths());
     projectFile->setDefines(getDefines());
     projectFile->setUndefines(getUndefines());
     projectFile->setCheckPaths(getCheckPaths());
     projectFile->setExcludedPaths(getExcludedPaths());
     projectFile->setLibraries(getLibraries());
+    projectFile->clangParser = mUI.mBtnClangParser->isChecked();
+    projectFile->safeChecks.classes = mUI.mBtnSafeClasses->isChecked();
+    projectFile->bugHunting = mUI.mBtnBugHunting->isChecked();
     if (mUI.mComboBoxPlatform->currentText().endsWith(".xml"))
         projectFile->setPlatform(mUI.mComboBoxPlatform->currentText());
     else {
@@ -326,6 +381,23 @@ void ProjectFileDialog::saveToProjectFile(ProjectFile *projectFile) const
             projectFile->setPlatform(QString());
     }
     projectFile->setSuppressions(getSuppressions());
+    // Human knowledge
+    /*
+    QStringList unknownReturnValues;
+    for (int row = 0; row < mUI.mListUnknownFunctionReturn->count(); ++row) {
+        QListWidgetItem *item = mUI.mListUnknownFunctionReturn->item(row);
+        if (item->checkState() == Qt::Checked)
+            unknownReturnValues << item->text();
+    }
+    projectFile->setCheckUnknownFunctionReturn(unknownReturnValues);
+    ProjectFile::SafeChecks safeChecks;
+    safeChecks.classes = mUI.mCheckSafeClasses->isChecked();
+    safeChecks.externalFunctions = mUI.mCheckSafeExternalFunctions->isChecked();
+    safeChecks.internalFunctions = mUI.mCheckSafeInternalFunctions->isChecked();
+    safeChecks.externalVariables = mUI.mCheckSafeExternalVariables->isChecked();
+    projectFile->setSafeChecks(safeChecks);
+    */
+    // Addons
     QStringList list;
     if (mUI.mAddonThreadSafety->isChecked())
         list << "threadsafety";
@@ -384,6 +456,7 @@ void ProjectFileDialog::updatePathsAndDefines()
 {
     const QString &fileName = mUI.mEditImportProject->text();
     bool importProject = !fileName.isEmpty();
+    bool hasConfigs = fileName.endsWith(".sln") || fileName.endsWith(".vcxproj");
     mUI.mBtnClearImportProject->setEnabled(importProject);
     mUI.mListCheckPaths->setEnabled(!importProject);
     mUI.mListIncludeDirs->setEnabled(!importProject);
@@ -397,7 +470,10 @@ void ProjectFileDialog::updatePathsAndDefines()
     mUI.mBtnRemoveInclude->setEnabled(!importProject);
     mUI.mBtnIncludeUp->setEnabled(!importProject);
     mUI.mBtnIncludeDown->setEnabled(!importProject);
-    mUI.mChkAllVsConfigs->setEnabled(fileName.endsWith(".sln") || fileName.endsWith(".vcxproj"));
+    mUI.mChkAllVsConfigs->setEnabled(hasConfigs);
+    mUI.mListVsConfigs->setEnabled(hasConfigs && !mUI.mChkAllVsConfigs->isChecked());
+    if (!hasConfigs)
+        mUI.mListVsConfigs->clear();
 }
 
 void ProjectFileDialog::clearImportProject()
@@ -420,6 +496,33 @@ void ProjectFileDialog::browseImportProject()
     if (!fileName.isEmpty()) {
         mUI.mEditImportProject->setText(dir.relativeFilePath(fileName));
         updatePathsAndDefines();
+        setProjectConfigurations(getProjectConfigs(fileName));
+        for (int row = 0; row < mUI.mListVsConfigs->count(); ++row) {
+            QListWidgetItem *item = mUI.mListVsConfigs->item(row);
+            item->setCheckState(Qt::Checked);
+        }
+    }
+}
+
+QStringList ProjectFileDialog::getProjectConfigurations() const
+{
+    QStringList configs;
+    for (int row = 0; row < mUI.mListVsConfigs->count(); ++row) {
+        QListWidgetItem *item = mUI.mListVsConfigs->item(row);
+        if (item->checkState() == Qt::Checked)
+            configs << item->text();
+    }
+    return configs;
+}
+
+void ProjectFileDialog::setProjectConfigurations(const QStringList &configs)
+{
+    mUI.mListVsConfigs->clear();
+    mUI.mListVsConfigs->setEnabled(!configs.isEmpty() && !mUI.mChkAllVsConfigs->isChecked());
+    foreach (const QString &cfg, configs) {
+        QListWidgetItem* item = new QListWidgetItem(cfg, mUI.mListVsConfigs);
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable); // set checkable flag
+        item->setCheckState(Qt::Unchecked);
     }
 }
 
@@ -623,9 +726,17 @@ void ProjectFileDialog::editIncludeDir()
 
 void ProjectFileDialog::addExcludePath()
 {
-    QString dir = getExistingDirectory(tr("Select directory to ignore"), true);
-    if (!dir.isEmpty())
-        addExcludePath(dir);
+    addExcludePath(getExistingDirectory(tr("Select directory to ignore"), true));
+}
+
+void ProjectFileDialog::addExcludeFile()
+{
+    const QFileInfo inf(mProjectFile->getFilename());
+    const QDir &dir = inf.absoluteDir();
+    QMap<QString,QString> filters;
+    filters[tr("Source files")] = "*.c *.cpp";
+    filters[tr("All files")] = "*.*";
+    addExcludePath(QFileDialog::getOpenFileName(this, tr("Exclude file"), dir.canonicalPath(), toFilterString(filters)));
 }
 
 void ProjectFileDialog::editExcludePath()
@@ -708,7 +819,10 @@ int ProjectFileDialog::getSuppressionIndex(const QString &shortText) const
 
 void ProjectFileDialog::browseMisraFile()
 {
-    const QString fileName = QFileDialog::getOpenFileName(this, tr("Select MISRA rule texts file"), QDir::homePath(), tr("Misra rule texts file (%1)").arg("*.txt"));
+    const QString fileName = QFileDialog::getOpenFileName(this,
+                             tr("Select MISRA rule texts file"),
+                             QDir::homePath(),
+                             tr("Misra rule texts file (%1)").arg("*.txt"));
     if (!fileName.isEmpty()) {
         QSettings settings;
         mUI.mEditMisraFile->setText(fileName);
@@ -716,6 +830,6 @@ void ProjectFileDialog::browseMisraFile()
 
         mUI.mAddonMisra->setText("MISRA C 2012");
         mUI.mAddonMisra->setEnabled(true);
-        updateAddonCheckBox(mUI.mAddonMisra, nullptr, settings.value("DATADIR", QString()).toString(), "misra");
+        updateAddonCheckBox(mUI.mAddonMisra, nullptr, getDataDir(), "misra");
     }
 }

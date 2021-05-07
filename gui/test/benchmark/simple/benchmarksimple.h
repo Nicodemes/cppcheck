@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2018 Cppcheck team.
+ * Copyright (C) 2007-2019 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,6 +33,6 @@ private:
     // We don't care about the output in the benchmark tests.
     void reportOut(const std::string & outmsg) override {
     }
-    void reportErr(const ErrorLogger::ErrorMessage &msg) override {
+    void reportErr(const ErrorMessage &msg) override {
     }
 };

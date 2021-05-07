@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2018 Cppcheck team.
+ * Copyright (C) 2007-2021 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,6 +36,9 @@
 #include <sys/loadavg.h>
 #endif
 #ifdef THREADING_MODEL_FORK
+#if defined(__linux__)
+#include <sys/prctl.h>
+#endif
 #include <sys/select.h>
 #include <sys/wait.h>
 #include <fcntl.h>
@@ -50,16 +53,16 @@
 using std::memset;
 
 ThreadExecutor::ThreadExecutor(const std::map<std::string, std::size_t> &files, Settings &settings, ErrorLogger &errorLogger)
-    : _files(files), _settings(settings), _errorLogger(errorLogger), _fileCount(0)
-      // Not initialized _fileSync, _errorSync, _reportSync
+    : mFiles(files), mSettings(settings), mErrorLogger(errorLogger), mFileCount(0)
+      // Not initialized mFileSync, mErrorSync, mReportSync
 {
 #if defined(THREADING_MODEL_FORK)
-    _wpipe = 0;
+    mWpipe = 0;
 #elif defined(THREADING_MODEL_WIN)
-    _processedFiles = 0;
-    _totalFiles = 0;
-    _processedSize = 0;
-    _totalFileSize = 0;
+    mProcessedFiles = 0;
+    mTotalFiles = 0;
+    mProcessedSize = 0;
+    mTotalFileSize = 0;
 #endif
 }
 
@@ -77,7 +80,7 @@ ThreadExecutor::~ThreadExecutor()
 
 void ThreadExecutor::addFileContent(const std::string &path, const std::string &content)
 {
-    _fileContents[ path ] = content;
+    mFileContents[ path ] = content;
 }
 
 int ThreadExecutor::handleRead(int rpipe, unsigned int &result)
@@ -87,18 +90,20 @@ int ThreadExecutor::handleRead(int rpipe, unsigned int &result)
         if (errno == EAGAIN)
             return 0;
 
+        // need to increment so a missing pipe (i.e. premature exit of forked process) results in an error exitcode
+        ++result;
         return -1;
     }
 
     if (type != REPORT_OUT && type != REPORT_ERROR && type != REPORT_INFO && type != CHILD_END) {
         std::cerr << "#### ThreadExecutor::handleRead error, type was:" << type << std::endl;
-        std::exit(0);
+        std::exit(EXIT_FAILURE);
     }
 
     unsigned int len = 0;
     if (read(rpipe, &len, sizeof(len)) <= 0) {
         std::cerr << "#### ThreadExecutor::handleRead error, type was:" << type << std::endl;
-        std::exit(0);
+        std::exit(EXIT_FAILURE);
     }
 
     // Don't rely on incoming data being null-terminated.
@@ -107,25 +112,25 @@ int ThreadExecutor::handleRead(int rpipe, unsigned int &result)
     const ssize_t readIntoBuf = read(rpipe, buf, len);
     if (readIntoBuf <= 0) {
         std::cerr << "#### ThreadExecutor::handleRead error, type was:" << type << std::endl;
-        std::exit(0);
+        std::exit(EXIT_FAILURE);
     }
     buf[readIntoBuf] = 0;
 
     if (type == REPORT_OUT) {
-        _errorLogger.reportOut(buf);
+        mErrorLogger.reportOut(buf);
     } else if (type == REPORT_ERROR || type == REPORT_INFO) {
-        ErrorLogger::ErrorMessage msg;
+        ErrorMessage msg;
         msg.deserialize(buf);
 
-        if (!_settings.nomsg.isSuppressed(msg.toSuppressionsErrorMessage())) {
+        if (!mSettings.nomsg.isSuppressed(msg.toSuppressionsErrorMessage())) {
             // Alert only about unique errors
-            std::string errmsg = msg.toString(_settings.verbose);
-            if (std::find(_errorList.begin(), _errorList.end(), errmsg) == _errorList.end()) {
-                _errorList.push_back(errmsg);
+            std::string errmsg = msg.toString(mSettings.verbose);
+            if (std::find(mErrorList.begin(), mErrorList.end(), errmsg) == mErrorList.end()) {
+                mErrorList.emplace_back(errmsg);
                 if (type == REPORT_ERROR)
-                    _errorLogger.reportErr(msg);
+                    mErrorLogger.reportErr(msg);
                 else
-                    _errorLogger.reportInfo(msg);
+                    mErrorLogger.reportInfo(msg);
             }
         }
     } else if (type == CHILD_END) {
@@ -146,7 +151,7 @@ bool ThreadExecutor::checkLoadAverage(size_t nchildren)
 #if defined(__CYGWIN__) || defined(__QNX__)  // getloadavg() is unsupported on Cygwin, Qnx.
     return true;
 #else
-    if (!nchildren || !_settings.loadAverage) {
+    if (!nchildren || !mSettings.loadAverage) {
         return true;
     }
 
@@ -154,7 +159,7 @@ bool ThreadExecutor::checkLoadAverage(size_t nchildren)
     if (getloadavg(&sample, 1) != 1) {
         // disable load average checking on getloadavg error
         return true;
-    } else if (sample < _settings.loadAverage) {
+    } else if (sample < mSettings.loadAverage) {
         return true;
     }
     return false;
@@ -163,11 +168,11 @@ bool ThreadExecutor::checkLoadAverage(size_t nchildren)
 
 unsigned int ThreadExecutor::check()
 {
-    _fileCount = 0;
+    mFileCount = 0;
     unsigned int result = 0;
 
     std::size_t totalfilesize = 0;
-    for (std::map<std::string, std::size_t>::const_iterator i = _files.begin(); i != _files.end(); ++i) {
+    for (std::map<std::string, std::size_t>::const_iterator i = mFiles.begin(); i != mFiles.end(); ++i) {
         totalfilesize += i->second;
     }
 
@@ -175,12 +180,12 @@ unsigned int ThreadExecutor::check()
     std::map<pid_t, std::string> childFile;
     std::map<int, std::string> pipeFile;
     std::size_t processedsize = 0;
-    std::map<std::string, std::size_t>::const_iterator iFile = _files.begin();
-    std::list<ImportProject::FileSettings>::const_iterator iFileSettings = _settings.project.fileSettings.begin();
+    std::map<std::string, std::size_t>::const_iterator iFile = mFiles.begin();
+    std::list<ImportProject::FileSettings>::const_iterator iFileSettings = mSettings.project.fileSettings.begin();
     for (;;) {
         // Start a new child
-        size_t nchildren = rpipes.size();
-        if ((iFile != _files.end() || iFileSettings != _settings.project.fileSettings.end()) && nchildren < _settings.jobs && checkLoadAverage(nchildren)) {
+        size_t nchildren = childFile.size();
+        if ((iFile != mFiles.end() || iFileSettings != mSettings.project.fileSettings.end()) && nchildren < mSettings.jobs && checkLoadAverage(nchildren)) {
             int pipes[2];
             if (pipe(pipes) == -1) {
                 std::cerr << "#### ThreadExecutor::check, pipe() failed: "<< std::strerror(errno) << std::endl;
@@ -204,18 +209,21 @@ unsigned int ThreadExecutor::check()
                 std::cerr << "#### ThreadExecutor::check, Failed to create child process: "<< std::strerror(errno) << std::endl;
                 std::exit(EXIT_FAILURE);
             } else if (pid == 0) {
+#if defined(__linux__)
+                prctl(PR_SET_PDEATHSIG, SIGHUP);
+#endif
                 close(pipes[0]);
-                _wpipe = pipes[1];
+                mWpipe = pipes[1];
 
-                CppCheck fileChecker(*this, false);
-                fileChecker.settings() = _settings;
+                CppCheck fileChecker(*this, false, CppCheckExecutor::executeCommand);
+                fileChecker.settings() = mSettings;
                 unsigned int resultOfCheck = 0;
 
-                if (iFileSettings != _settings.project.fileSettings.end()) {
+                if (iFileSettings != mSettings.project.fileSettings.end()) {
                     resultOfCheck = fileChecker.check(*iFileSettings);
-                } else if (!_fileContents.empty() && _fileContents.find(iFile->first) != _fileContents.end()) {
+                } else if (!mFileContents.empty() && mFileContents.find(iFile->first) != mFileContents.end()) {
                     // File content was given as a string
-                    resultOfCheck = fileChecker.check(iFile->first, _fileContents[ iFile->first ]);
+                    resultOfCheck = fileChecker.check(iFile->first, mFileContents[ iFile->first ]);
                 } else {
                     // Read file from a file
                     resultOfCheck = fileChecker.check(iFile->first);
@@ -224,12 +232,12 @@ unsigned int ThreadExecutor::check()
                 std::ostringstream oss;
                 oss << resultOfCheck;
                 writeToPipe(CHILD_END, oss.str());
-                std::exit(0);
+                std::exit(EXIT_SUCCESS);
             }
 
             close(pipes[1]);
             rpipes.push_back(pipes[0]);
-            if (iFileSettings != _settings.project.fileSettings.end()) {
+            if (iFileSettings != mSettings.project.fileSettings.end()) {
                 childFile[pid] = iFileSettings->filename + ' ' + iFileSettings->cfg;
                 pipeFile[pipes[0]] = iFileSettings->filename + ' ' + iFileSettings->cfg;
                 ++iFileSettings;
@@ -238,7 +246,8 @@ unsigned int ThreadExecutor::check()
                 pipeFile[pipes[0]] = iFile->first;
                 ++iFile;
             }
-        } else if (!rpipes.empty()) {
+        }
+        if (!rpipes.empty()) {
             fd_set rfds;
             FD_ZERO(&rfds);
             for (std::list<int>::const_iterator rp = rpipes.begin(); rp != rpipes.end(); ++rp)
@@ -259,16 +268,16 @@ unsigned int ThreadExecutor::check()
                             if (p != pipeFile.end()) {
                                 std::string name = p->second;
                                 pipeFile.erase(p);
-                                std::map<std::string, std::size_t>::const_iterator fs = _files.find(name);
-                                if (fs != _files.end()) {
+                                std::map<std::string, std::size_t>::const_iterator fs = mFiles.find(name);
+                                if (fs != mFiles.end()) {
                                     size = fs->second;
                                 }
                             }
 
-                            _fileCount++;
+                            mFileCount++;
                             processedsize += size;
-                            if (!_settings.quiet)
-                                CppCheckExecutor::reportStatus(_fileCount, _files.size() + _settings.project.fileSettings.size(), processedsize, totalfilesize);
+                            if (!mSettings.quiet)
+                                CppCheckExecutor::reportStatus(mFileCount, mFiles.size() + mSettings.project.fileSettings.size(), processedsize, totalfilesize);
 
                             close(*rp);
                             rp = rpipes.erase(rp);
@@ -278,7 +287,8 @@ unsigned int ThreadExecutor::check()
                         ++rp;
                 }
             }
-
+        }
+        if (!childFile.empty()) {
             int stat = 0;
             pid_t child = waitpid(0, &stat, WNOHANG);
             if (child > 0) {
@@ -289,24 +299,21 @@ unsigned int ThreadExecutor::check()
                     childFile.erase(c);
                 }
 
-                if (WIFSIGNALED(stat)) {
+                if (WIFEXITED(stat)) {
+                    const int exitstatus = WEXITSTATUS(stat);
+                    if (exitstatus != EXIT_SUCCESS) {
+                        std::ostringstream oss;
+                        oss << "Child process exited with " << exitstatus;
+                        reportInternalChildErr(childname, oss.str());
+                    }
+                } else if (WIFSIGNALED(stat)) {
                     std::ostringstream oss;
-                    oss << "Internal error: Child process crashed with signal " << WTERMSIG(stat);
-
-                    std::list<ErrorLogger::ErrorMessage::FileLocation> locations;
-                    locations.emplace_back(childname, 0);
-                    const ErrorLogger::ErrorMessage errmsg(locations,
-                                                           emptyString,
-                                                           Severity::error,
-                                                           oss.str(),
-                                                           "cppcheckError",
-                                                           false);
-
-                    if (!_settings.nomsg.isSuppressed(errmsg.toSuppressionsErrorMessage()))
-                        _errorLogger.reportErr(errmsg);
+                    oss << "Child process crashed with signal " << WTERMSIG(stat);
+                    reportInternalChildErr(childname, oss.str());
                 }
             }
-        } else {
+        }
+        if (iFile == mFiles.end() && iFileSettings == mSettings.project.fileSettings.end() && rpipes.empty() && childFile.empty()) {
             // All done
             break;
         }
@@ -323,11 +330,11 @@ void ThreadExecutor::writeToPipe(PipeSignal type, const std::string &data)
     out[0] = static_cast<char>(type);
     std::memcpy(&(out[1]), &len, sizeof(len));
     std::memcpy(&(out[1+sizeof(len)]), data.c_str(), len);
-    if (write(_wpipe, out, len + 1 + sizeof(len)) <= 0) {
+    if (write(mWpipe, out, len + 1 + sizeof(len)) <= 0) {
         delete [] out;
         out = nullptr;
         std::cerr << "#### ThreadExecutor::writeToPipe, Failed to write to pipe" << std::endl;
-        std::exit(0);
+        std::exit(EXIT_FAILURE);
     }
 
     delete [] out;
@@ -338,43 +345,63 @@ void ThreadExecutor::reportOut(const std::string &outmsg)
     writeToPipe(REPORT_OUT, outmsg);
 }
 
-void ThreadExecutor::reportErr(const ErrorLogger::ErrorMessage &msg)
+void ThreadExecutor::reportErr(const ErrorMessage &msg)
 {
     writeToPipe(REPORT_ERROR, msg.serialize());
 }
 
-void ThreadExecutor::reportInfo(const ErrorLogger::ErrorMessage &msg)
+void ThreadExecutor::reportInfo(const ErrorMessage &msg)
 {
     writeToPipe(REPORT_INFO, msg.serialize());
+}
+
+void ThreadExecutor::bughuntingReport(const std::string &str)
+{
+    writeToPipe(REPORT_VERIFICATION, str);
+}
+
+void ThreadExecutor::reportInternalChildErr(const std::string &childname, const std::string &msg)
+{
+    std::list<ErrorMessage::FileLocation> locations;
+    locations.emplace_back(childname, 0, 0);
+    const ErrorMessage errmsg(locations,
+                              emptyString,
+                              Severity::error,
+                              "Internal error: " + msg,
+                              "cppcheckError",
+                              Certainty::normal);
+
+    if (!mSettings.nomsg.isSuppressed(errmsg.toSuppressionsErrorMessage()))
+        mErrorLogger.reportErr(errmsg);
 }
 
 #elif defined(THREADING_MODEL_WIN)
 
 void ThreadExecutor::addFileContent(const std::string &path, const std::string &content)
 {
-    _fileContents[path] = content;
+    mFileContents[path] = content;
 }
 
 unsigned int ThreadExecutor::check()
 {
-    HANDLE *threadHandles = new HANDLE[_settings.jobs];
+    HANDLE *threadHandles = new HANDLE[mSettings.jobs];
 
-    _itNextFile = _files.begin();
-    _itNextFileSettings = _settings.project.fileSettings.begin();
+    mItNextFile = mFiles.begin();
+    mItNextFileSettings = mSettings.project.fileSettings.begin();
 
-    _processedFiles = 0;
-    _processedSize = 0;
-    _totalFiles = _files.size() + _settings.project.fileSettings.size();
-    _totalFileSize = 0;
-    for (std::map<std::string, std::size_t>::const_iterator i = _files.begin(); i != _files.end(); ++i) {
-        _totalFileSize += i->second;
+    mProcessedFiles = 0;
+    mProcessedSize = 0;
+    mTotalFiles = mFiles.size() + mSettings.project.fileSettings.size();
+    mTotalFileSize = 0;
+    for (std::map<std::string, std::size_t>::const_iterator i = mFiles.begin(); i != mFiles.end(); ++i) {
+        mTotalFileSize += i->second;
     }
 
-    InitializeCriticalSection(&_fileSync);
-    InitializeCriticalSection(&_errorSync);
-    InitializeCriticalSection(&_reportSync);
+    InitializeCriticalSection(&mFileSync);
+    InitializeCriticalSection(&mErrorSync);
+    InitializeCriticalSection(&mReportSync);
 
-    for (unsigned int i = 0; i < _settings.jobs; ++i) {
+    for (unsigned int i = 0; i < mSettings.jobs; ++i) {
         threadHandles[i] = (HANDLE)_beginthreadex(nullptr, 0, threadProc, this, 0, nullptr);
         if (!threadHandles[i]) {
             std::cerr << "#### ThreadExecutor::check error, errno :" << errno << std::endl;
@@ -382,7 +409,7 @@ unsigned int ThreadExecutor::check()
         }
     }
 
-    const DWORD waitResult = WaitForMultipleObjects(_settings.jobs, threadHandles, TRUE, INFINITE);
+    const DWORD waitResult = WaitForMultipleObjects(mSettings.jobs, threadHandles, TRUE, INFINITE);
     if (waitResult != WAIT_OBJECT_0) {
         if (waitResult == WAIT_FAILED) {
             std::cerr << "#### ThreadExecutor::check wait failed, result: " << waitResult << " error: " << GetLastError() << std::endl;
@@ -394,7 +421,7 @@ unsigned int ThreadExecutor::check()
     }
 
     unsigned int result = 0;
-    for (unsigned int i = 0; i < _settings.jobs; ++i) {
+    for (unsigned int i = 0; i < mSettings.jobs; ++i) {
         DWORD exitCode;
 
         if (!GetExitCodeThread(threadHandles[i], &exitCode)) {
@@ -410,9 +437,9 @@ unsigned int ThreadExecutor::check()
         }
     }
 
-    DeleteCriticalSection(&_fileSync);
-    DeleteCriticalSection(&_errorSync);
-    DeleteCriticalSection(&_reportSync);
+    DeleteCriticalSection(&mFileSync);
+    DeleteCriticalSection(&mErrorSync);
+    DeleteCriticalSection(&mReportSync);
 
     delete[] threadHandles;
 
@@ -424,31 +451,31 @@ unsigned int __stdcall ThreadExecutor::threadProc(void *args)
     unsigned int result = 0;
 
     ThreadExecutor *threadExecutor = static_cast<ThreadExecutor*>(args);
-    std::map<std::string, std::size_t>::const_iterator &itFile = threadExecutor->_itNextFile;
-    std::list<ImportProject::FileSettings>::const_iterator &itFileSettings = threadExecutor->_itNextFileSettings;
+    std::map<std::string, std::size_t>::const_iterator &itFile = threadExecutor->mItNextFile;
+    std::list<ImportProject::FileSettings>::const_iterator &itFileSettings = threadExecutor->mItNextFileSettings;
 
     // guard static members of CppCheck against concurrent access
-    EnterCriticalSection(&threadExecutor->_fileSync);
+    EnterCriticalSection(&threadExecutor->mFileSync);
 
-    CppCheck fileChecker(*threadExecutor, false);
-    fileChecker.settings() = threadExecutor->_settings;
+    CppCheck fileChecker(*threadExecutor, false, CppCheckExecutor::executeCommand);
+    fileChecker.settings() = threadExecutor->mSettings;
 
     for (;;) {
-        if (itFile == threadExecutor->_files.end() && itFileSettings == threadExecutor->_settings.project.fileSettings.end()) {
-            LeaveCriticalSection(&threadExecutor->_fileSync);
+        if (itFile == threadExecutor->mFiles.end() && itFileSettings == threadExecutor->mSettings.project.fileSettings.end()) {
+            LeaveCriticalSection(&threadExecutor->mFileSync);
             break;
         }
 
         std::size_t fileSize = 0;
-        if (itFile != threadExecutor->_files.end()) {
+        if (itFile != threadExecutor->mFiles.end()) {
             const std::string &file = itFile->first;
             fileSize = itFile->second;
             ++itFile;
 
-            LeaveCriticalSection(&threadExecutor->_fileSync);
+            LeaveCriticalSection(&threadExecutor->mFileSync);
 
-            const std::map<std::string, std::string>::const_iterator fileContent = threadExecutor->_fileContents.find(file);
-            if (fileContent != threadExecutor->_fileContents.end()) {
+            const std::map<std::string, std::string>::const_iterator fileContent = threadExecutor->mFileContents.find(file);
+            if (fileContent != threadExecutor->mFileContents.end()) {
                 // File content was given as a string
                 result += fileChecker.check(file, fileContent->second);
             } else {
@@ -458,18 +485,20 @@ unsigned int __stdcall ThreadExecutor::threadProc(void *args)
         } else { // file settings..
             const ImportProject::FileSettings &fs = *itFileSettings;
             ++itFileSettings;
-            LeaveCriticalSection(&threadExecutor->_fileSync);
+            LeaveCriticalSection(&threadExecutor->mFileSync);
             result += fileChecker.check(fs);
+            if (threadExecutor->mSettings.clangTidy)
+                fileChecker.analyseClangTidy(fs);
         }
 
-        EnterCriticalSection(&threadExecutor->_fileSync);
+        EnterCriticalSection(&threadExecutor->mFileSync);
 
-        threadExecutor->_processedSize += fileSize;
-        threadExecutor->_processedFiles++;
-        if (!threadExecutor->_settings.quiet) {
-            EnterCriticalSection(&threadExecutor->_reportSync);
-            CppCheckExecutor::reportStatus(threadExecutor->_processedFiles, threadExecutor->_totalFiles, threadExecutor->_processedSize, threadExecutor->_totalFileSize);
-            LeaveCriticalSection(&threadExecutor->_reportSync);
+        threadExecutor->mProcessedSize += fileSize;
+        threadExecutor->mProcessedFiles++;
+        if (!threadExecutor->mSettings.quiet) {
+            EnterCriticalSection(&threadExecutor->mReportSync);
+            CppCheckExecutor::reportStatus(threadExecutor->mProcessedFiles, threadExecutor->mTotalFiles, threadExecutor->mProcessedSize, threadExecutor->mTotalFileSize);
+            LeaveCriticalSection(&threadExecutor->mReportSync);
         }
     }
     return result;
@@ -477,51 +506,56 @@ unsigned int __stdcall ThreadExecutor::threadProc(void *args)
 
 void ThreadExecutor::reportOut(const std::string &outmsg)
 {
-    EnterCriticalSection(&_reportSync);
+    EnterCriticalSection(&mReportSync);
 
-    _errorLogger.reportOut(outmsg);
+    mErrorLogger.reportOut(outmsg);
 
-    LeaveCriticalSection(&_reportSync);
+    LeaveCriticalSection(&mReportSync);
 }
-void ThreadExecutor::reportErr(const ErrorLogger::ErrorMessage &msg)
+void ThreadExecutor::reportErr(const ErrorMessage &msg)
 {
-    report(msg, REPORT_ERROR);
-}
-
-void ThreadExecutor::reportInfo(const ErrorLogger::ErrorMessage &msg)
-{
-    report(msg, REPORT_INFO);
+    report(msg, MessageType::REPORT_ERROR);
 }
 
-void ThreadExecutor::report(const ErrorLogger::ErrorMessage &msg, MessageType msgType)
+void ThreadExecutor::reportInfo(const ErrorMessage &msg)
 {
-    if (_settings.nomsg.isSuppressed(msg.toSuppressionsErrorMessage()))
+    report(msg, MessageType::REPORT_INFO);
+}
+
+void ThreadExecutor::bughuntingReport(const std::string  &/*str*/)
+{
+    // TODO
+}
+
+void ThreadExecutor::report(const ErrorMessage &msg, MessageType msgType)
+{
+    if (mSettings.nomsg.isSuppressed(msg.toSuppressionsErrorMessage()))
         return;
 
     // Alert only about unique errors
     bool reportError = false;
-    const std::string errmsg = msg.toString(_settings.verbose);
+    const std::string errmsg = msg.toString(mSettings.verbose);
 
-    EnterCriticalSection(&_errorSync);
-    if (std::find(_errorList.begin(), _errorList.end(), errmsg) == _errorList.end()) {
-        _errorList.push_back(errmsg);
+    EnterCriticalSection(&mErrorSync);
+    if (std::find(mErrorList.begin(), mErrorList.end(), errmsg) == mErrorList.end()) {
+        mErrorList.emplace_back(errmsg);
         reportError = true;
     }
-    LeaveCriticalSection(&_errorSync);
+    LeaveCriticalSection(&mErrorSync);
 
     if (reportError) {
-        EnterCriticalSection(&_reportSync);
+        EnterCriticalSection(&mReportSync);
 
         switch (msgType) {
-        case REPORT_ERROR:
-            _errorLogger.reportErr(msg);
+        case MessageType::REPORT_ERROR:
+            mErrorLogger.reportErr(msg);
             break;
-        case REPORT_INFO:
-            _errorLogger.reportInfo(msg);
+        case MessageType::REPORT_INFO:
+            mErrorLogger.reportInfo(msg);
             break;
         }
 
-        LeaveCriticalSection(&_reportSync);
+        LeaveCriticalSection(&mReportSync);
     }
 }
 
@@ -541,14 +575,18 @@ void ThreadExecutor::reportOut(const std::string &/*outmsg*/)
 {
 
 }
-void ThreadExecutor::reportErr(const ErrorLogger::ErrorMessage &/*msg*/)
+void ThreadExecutor::reportErr(const ErrorMessage &/*msg*/)
 {
 
 }
 
-void ThreadExecutor::reportInfo(const ErrorLogger::ErrorMessage &/*msg*/)
+void ThreadExecutor::reportInfo(const ErrorMessage &/*msg*/)
 {
 
+}
+
+void ThreadExecutor::bughuntingReport(const std::string &/*str*/)
+{
 }
 
 #endif

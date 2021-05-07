@@ -3,9 +3,9 @@
 include($$PWD/pcrerules.pri)
 include($$PWD/../externals/externals.pri)
 INCLUDEPATH += $$PWD
-HEADERS += $${PWD}/check.h \
-           $${PWD}/analyzerinfo.h \
+HEADERS += $${PWD}/analyzerinfo.h \
            $${PWD}/astutils.h \
+           $${PWD}/bughuntingchecks.h \
            $${PWD}/check.h \
            $${PWD}/check64bit.h \
            $${PWD}/checkassert.h \
@@ -32,17 +32,25 @@ HEADERS += $${PWD}/check.h \
            $${PWD}/checkunusedfunctions.h \
            $${PWD}/checkunusedvar.h \
            $${PWD}/checkvaarg.h \
+           $${PWD}/clangimport.h \
            $${PWD}/cppcheck.h \
            $${PWD}/ctu.h \
            $${PWD}/errorlogger.h \
+           $${PWD}/errortypes.h \
+           $${PWD}/exprengine.h \
+           $${PWD}/forwardanalyzer.h \
            $${PWD}/importproject.h \
            $${PWD}/library.h \
            $${PWD}/mathlib.h \
            $${PWD}/path.h \
+           $${PWD}/pathanalysis.h \
            $${PWD}/pathmatch.h \
            $${PWD}/platform.h \
            $${PWD}/preprocessor.h \
+           $${PWD}/programmemory.h \
+           $${PWD}/reverseanalyzer.h \
            $${PWD}/settings.h \
+           $${PWD}/summaries.h \
            $${PWD}/suppressions.h \
            $${PWD}/symboldatabase.h \
            $${PWD}/templatesimplifier.h \
@@ -50,11 +58,12 @@ HEADERS += $${PWD}/check.h \
            $${PWD}/token.h \
            $${PWD}/tokenize.h \
            $${PWD}/tokenlist.h \
-           $${PWD}/valueflow.h \
-
+           $${PWD}/utils.h \
+           $${PWD}/valueflow.h
 
 SOURCES += $${PWD}/analyzerinfo.cpp \
            $${PWD}/astutils.cpp \
+           $${PWD}/bughuntingchecks.cpp \
            $${PWD}/check.cpp \
            $${PWD}/check64bit.cpp \
            $${PWD}/checkassert.cpp \
@@ -81,17 +90,25 @@ SOURCES += $${PWD}/analyzerinfo.cpp \
            $${PWD}/checkunusedfunctions.cpp \
            $${PWD}/checkunusedvar.cpp \
            $${PWD}/checkvaarg.cpp \
+           $${PWD}/clangimport.cpp \
            $${PWD}/cppcheck.cpp \
            $${PWD}/ctu.cpp \
            $${PWD}/errorlogger.cpp \
+           $${PWD}/errortypes.cpp \
+           $${PWD}/exprengine.cpp \
+           $${PWD}/forwardanalyzer.cpp \
            $${PWD}/importproject.cpp \
            $${PWD}/library.cpp \
            $${PWD}/mathlib.cpp \
            $${PWD}/path.cpp \
+           $${PWD}/pathanalysis.cpp \
            $${PWD}/pathmatch.cpp \
            $${PWD}/platform.cpp \
            $${PWD}/preprocessor.cpp \
+           $${PWD}/programmemory.cpp \
+           $${PWD}/reverseanalyzer.cpp \
            $${PWD}/settings.cpp \
+           $${PWD}/summaries.cpp \
            $${PWD}/suppressions.cpp \
            $${PWD}/symboldatabase.cpp \
            $${PWD}/templatesimplifier.cpp \
@@ -99,4 +116,5 @@ SOURCES += $${PWD}/analyzerinfo.cpp \
            $${PWD}/token.cpp \
            $${PWD}/tokenize.cpp \
            $${PWD}/tokenlist.cpp \
+           $${PWD}/utils.cpp \
            $${PWD}/valueflow.cpp

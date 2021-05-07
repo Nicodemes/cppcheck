@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2019 Cppcheck team.
+ * Copyright (C) 2007-2021 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,7 +35,7 @@ private:
     Settings settings;
 
     void run() OVERRIDE {
-        settings.addEnabled("style");
+        settings.severity.enable(Severity::style);
 
         TEST_CASE(test1);
         TEST_CASE(test2);
@@ -77,7 +77,7 @@ private:
 
         TEST_CASE(multiFile);
         TEST_CASE(unknownBaseTemplate); // ticket #2580
-        TEST_CASE(hierarchie_loop); // ticket 5590
+        TEST_CASE(hierarchy_loop); // ticket 5590
 
         TEST_CASE(staticVariable); //ticket #5566
 
@@ -103,9 +103,8 @@ private:
 
         // Tokenize..
         Tokenizer tokenizer(&settings, this);
-        tokenizer.createTokens(&tokens2);
+        tokenizer.createTokens(std::move(tokens2));
         tokenizer.simplifyTokens1("");
-        tokenizer.simplifyTokenList2();
 
         // Check for unused private functions..
         CheckClass checkClass(&tokenizer, &settings, this);
@@ -417,7 +416,7 @@ private:
               "}\n"
               "class A::B {"
               "  B() { A a; a.f(); }\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("", errout.str());
     }
 
@@ -753,7 +752,7 @@ private:
         ASSERT_EQUALS("", errout.str());
     }
 
-    void hierarchie_loop() {
+    void hierarchy_loop() {
         check("class InfiniteB : InfiniteA {\n"
               "    class D {\n"
               "    };\n"

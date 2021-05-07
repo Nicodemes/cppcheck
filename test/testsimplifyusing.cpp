@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2019 Cppcheck team.
+ * Copyright (C) 2007-2021 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,12 +17,12 @@
  */
 
 
+#include "config.h"
 #include "platform.h"
 #include "settings.h"
 #include "testsuite.h"
 #include "token.h"
 #include "tokenize.h"
-#include "tokenlist.h"
 
 struct InternalError;
 
@@ -39,8 +39,13 @@ private:
     Settings settings2;
 
     void run() OVERRIDE {
-        settings0.addEnabled("style");
-        settings2.addEnabled("style");
+        settings0.severity.enable(Severity::style);
+        settings2.severity.enable(Severity::style);
+
+        // If there are unused templates, keep those
+        settings0.checkUnusedTemplates = true;
+        settings1.checkUnusedTemplates = true;
+        settings2.checkUnusedTemplates = true;
 
         TEST_CASE(simplifyUsing1);
         TEST_CASE(simplifyUsing2);
@@ -58,18 +63,39 @@ private:
         TEST_CASE(simplifyUsing14);
         TEST_CASE(simplifyUsing15);
         TEST_CASE(simplifyUsing16);
+        TEST_CASE(simplifyUsing17);
+        TEST_CASE(simplifyUsing18);
+        TEST_CASE(simplifyUsing19);
+        TEST_CASE(simplifyUsing20);
+        TEST_CASE(simplifyUsing21);
+        TEST_CASE(simplifyUsing22);
+        TEST_CASE(simplifyUsing23);
+        TEST_CASE(simplifyUsing24);
+        TEST_CASE(simplifyUsing25);
 
         TEST_CASE(simplifyUsing8970);
         TEST_CASE(simplifyUsing8971);
         TEST_CASE(simplifyUsing8976);
         TEST_CASE(simplifyUsing9040);
         TEST_CASE(simplifyUsing9042);
+        TEST_CASE(simplifyUsing9191);
+        TEST_CASE(simplifyUsing9381);
+        TEST_CASE(simplifyUsing9385);
+        TEST_CASE(simplifyUsing9388);
+        TEST_CASE(simplifyUsing9518);
+        TEST_CASE(simplifyUsing9757);
+        TEST_CASE(simplifyUsing10008);
+        TEST_CASE(simplifyUsing10054);
+        TEST_CASE(simplifyUsing10136);
+        TEST_CASE(simplifyUsing10171);
+        TEST_CASE(simplifyUsing10172);
+        TEST_CASE(simplifyUsing10173);
     }
 
     std::string tok(const char code[], bool simplify = true, Settings::PlatformType type = Settings::Native, bool debugwarnings = true) {
         errout.str("");
 
-        settings0.inconclusive = true;
+        settings0.certainty.enable(Certainty::inconclusive);
         settings0.debugwarnings = debugwarnings;
         settings0.platform(type);
         Tokenizer tokenizer(&settings0, this);
@@ -77,10 +103,7 @@ private:
         std::istringstream istr(code);
         tokenizer.tokenize(istr, "test.cpp");
 
-        if (simplify)
-            tokenizer.simplifyTokenList2();
-
-        return tokenizer.tokens()->stringifyList(0, !simplify);
+        return tokenizer.tokens()->stringifyList(nullptr, !simplify);
     }
 
     void simplifyUsing1() {
@@ -377,8 +400,8 @@ private:
                             "    FP_M(val);"
                             "};";
 
-        tok(code, true, Settings::Native, false);
-        ASSERT_EQUALS("", errout.str());
+        TODO_ASSERT_THROW(tok(code, true, Settings::Native, false), InternalError); // TODO: Do not throw AST validation exception
+        //ASSERT_EQUALS("", errout.str());
     }
 
     void simplifyUsing15() {
@@ -416,6 +439,177 @@ private:
 
         ASSERT_EQUALS(expected, tok(code, false));
         ASSERT_EQUALS("", errout.str());
+    }
+
+    void simplifyUsing17() {
+        const char code[] = "class C1 {};\n"
+                            "using S1 = class S1 {};\n"
+                            "using S2 = class S2 : public C1 {};\n"
+                            "using S3 = class {};\n"
+                            "using S4 = class : public C1 {};\n"
+                            "S1 s1;\n"
+                            "S2 s2;\n"
+                            "S3 s3;\n"
+                            "S4 s4;";
+
+        const char expected[] = "class C1 { } ; "
+                                "class S1 { } ; "
+                                "class S2 : public C1 { } ; "
+                                "class S3 { } ; "
+                                "class S4 : public C1 { } ; "
+                                "class S1 s1 ; "
+                                "class S2 s2 ; "
+                                "class S3 s3 ; "
+                                "class S4 s4 ;";
+
+        ASSERT_EQUALS(expected, tok(code, false));
+    }
+
+    void simplifyUsing18() {
+        const char code[] = "{ { { using a = a; using a; } } }";
+        tok(code, false); // don't crash
+    }
+
+    void simplifyUsing19() {
+        const char code[] = "namespace a {\n"
+                            "using b = int;\n"
+                            "void foo::c() { }\n"
+                            "void foo::d() { }\n"
+                            "void foo::e() {\n"
+                            "   using b = float;\n"
+                            "}\n"
+                            "}";
+        tok(code, false); // don't hang
+    }
+
+    void simplifyUsing20() {
+        const char code[] = "namespace a {\n"
+                            "namespace b {\n"
+                            "namespace c {\n"
+                            "namespace d {\n"
+                            "namespace e {\n"
+                            "namespace f {\n"
+                            "namespace g {\n"
+                            "using Changeset = ::IAdaptionCallback::Changeset;\n"
+                            "using EProperty = searches::EProperty;\n"
+                            "using ChangesetValueType = Changeset::value_type;\n"
+                            "namespace {\n"
+                            "   template <class T>\n"
+                            "   auto modify(std::shared_ptr<T>& p) -> boost::optional<decltype(p->modify())> {\n"
+                            "      return nullptr;\n"
+                            "   }\n"
+                            "   template <class T>\n"
+                            "   std::list<T> getValidElements() {\n"
+                            "      return nullptr;\n"
+                            "   }\n"
+                            "}\n"
+                            "std::shared_ptr<ResourceConfiguration>\n"
+                            "foo::getConfiguration() {\n"
+                            "   return nullptr;\n"
+                            "}\n"
+                            "void\n"
+                            "foo::doRegister(const Input & Input) {\n"
+                            "   UNUSED( Input );\n"
+                            "}\n"
+                            "foo::MicroServiceReturnValue\n"
+                            "foo::post(SearchesPtr element, const Changeset& changeset)\n"
+                            "{\n"
+                            "   using EProperty = ab::ep;\n"
+                            "   static std::map<EProperty, std::pair<ElementPropertyHandler, CheckComponentState>> updateHandlers =\n"
+                            "   {\n"
+                            "      {EProperty::Needle, {&RSISearchesResource::updateNeedle,         &RSISearchesResource::isSearcherReady}},\n"
+                            "      {EProperty::SortBy, {&RSISearchesResource::updateResultsSorting, &RSISearchesResource::isSearcherReady}}\n"
+                            "   };\n"
+                            "   return nullptr;\n"
+                            "}\n"
+                            "}}}}}}}";
+        tok(code, false); // don't hang
+    }
+
+    void simplifyUsing21() {
+        const char code[] = "using a = b;\n"
+                            "enum {}";
+        tok(code, false); // don't crash
+    }
+
+    void simplifyUsing22() {
+        const char code[] = "namespace aa { namespace bb { namespace cc { namespace dd { namespace ee {\n"
+                            "class fff {\n"
+                            "public:\n"
+                            "    using icmsp   = std::shared_ptr<aa::bb::ee::cm::api::icm>;\n"
+                            "private:\n"
+                            "    using Connection = boost::signals2::connection;\n"
+                            "    using ESdk = sdk::common::api::Sdk::ESdk;\n"
+                            "    using co = aa::bb::ee::com::api::com2;\n"
+                            "};\n"
+                            "fff::fff() : m_icm(icm) {\n"
+                            "    using ESdk = aa::bb::sdk::common::api::Sdk::ESdk;\n"
+                            "}\n"
+                            "}}}}}";
+        const char expected[] = "namespace aa { namespace bb { namespace cc { namespace dd { namespace ee { "
+                                "class fff { "
+                                "public: "
+                                "private: "
+                                "} ; "
+                                "fff :: fff ( ) : m_icm ( icm ) { "
+                                "} "
+                                "} } } } }";
+        ASSERT_EQUALS(expected, tok(code, false)); // don't hang
+    }
+
+    void simplifyUsing23() {
+        const char code[] = "class cmcch {\n"
+                            "public:\n"
+                            "   cmcch(icmsp const& icm, Rtnf&& rtnf = {});\n"
+                            "private:\n"
+                            "    using escs = aa::bb::cc::dd::ee;\n"
+                            "private:\n"
+                            "   icmsp m_icm;\n"
+                            "   mutable std::atomic<rt> m_rt;\n"
+                            "};\n"
+                            "cmcch::cmcch(cmcch::icmsp const& icm, Rtnf&& rtnf)\n"
+                            "   : m_icm(icm)\n"
+                            "   , m_rt{rt::UNKNOWN_} {\n"
+                            "  using escs = yy::zz::aa::bb::cc::dd::ee;\n"
+                            "}";
+        const char expected[] = "class cmcch { "
+                                "public: "
+                                "cmcch ( const icmsp & icm , Rtnf && rtnf = { } ) ; "
+                                "private: "
+                                "private: "
+                                "icmsp m_icm ; "
+                                "mutable std :: atomic < rt > m_rt ; "
+                                "} ; "
+                                "cmcch :: cmcch ( const cmcch :: icmsp & icm , Rtnf && rtnf ) "
+                                ": m_icm ( icm ) "
+                                ", m_rt { rt :: UNKNOWN_ } { "
+                                "}";
+        ASSERT_EQUALS(expected, tok(code, false)); // don't hang
+    }
+
+    void simplifyUsing24() {
+        const char code[] = "using value_type = const ValueFlow::Value;\n"
+                            "value_type vt;";
+        const char expected[] = "const ValueFlow :: Value vt ;";
+        ASSERT_EQUALS(expected, tok(code, false));
+    }
+
+    void simplifyUsing25() {
+        const char code[] = "struct UnusualType {\n"
+                            "  using T = vtkm::Id;\n"
+                            "  T X;\n"
+                            "};\n"
+                            "namespace vtkm {\n"
+                            "template <>\n"
+                            "struct VecTraits<UnusualType> : VecTraits<UnusualType::T> { };\n"
+                            "}";
+        const char expected[] = "struct UnusualType { "
+                                "vtkm :: Id X ; "
+                                "} ; "
+                                "namespace vtkm { "
+                                "struct VecTraits<UnusualType> : VecTraits < vtkm :: Id > { } ; "
+                                "}";
+        ASSERT_EQUALS(expected, tok(code, false));
     }
 
     void simplifyUsing8970() {
@@ -490,12 +684,626 @@ private:
                            "int i ; i = 0 ; "
                            "c ( ) { i -- ; } "
                            "} ; "
-                           "template < class T > "
-                           "class s { } ;";
+                           "template < class T > class s { } ;";
 
         ASSERT_EQUALS(exp, tok(code, true, Settings::Win64));
     }
 
+    void simplifyUsing9191() {
+        const char code[] = "namespace NS1 {\n"
+                            "  namespace NS2 {\n"
+                            "    using _LONG = signed long long;\n"
+                            "  }\n"
+                            "}\n"
+                            "void f1() {\n"
+                            "  using namespace NS1;\n"
+                            "  NS2::_LONG A;\n"
+                            "}\n"
+                            "void f2() {\n"
+                            "  using namespace NS1::NS2;\n"
+                            "  _LONG A;\n"
+                            "}";
+
+        const char exp[] = "void f1 ( ) { "
+                           "using namespace NS1 ; "
+                           "signed long long A ; "
+                           "} "
+                           "void f2 ( ) { "
+                           "using namespace NS1 :: NS2 ; "
+                           "signed long long A ; "
+                           "}";
+
+        ASSERT_EQUALS(exp, tok(code, false));
+    }
+
+    void simplifyUsing9381() {
+        const char code[] = "namespace ns {\n"
+                            "    class Result;\n"
+                            "    using UniqueResultPtr = std::unique_ptr<Result>;\n"
+                            "    class A {\n"
+                            "    public:\n"
+                            "        void func(UniqueResultPtr);\n"
+                            "    };\n"
+                            "    void A::func(UniqueResultPtr) {\n"
+                            "    }\n"
+                            "}";
+        const char exp[] = "namespace ns { "
+                           "class Result ; "
+                           "class A { "
+                           "public: "
+                           "void func ( std :: unique_ptr < Result > ) ; "
+                           "} ; "
+                           "void A :: func ( std :: unique_ptr < Result > ) { "
+                           "} "
+                           "}";
+
+        ASSERT_EQUALS(exp, tok(code, false));
+    }
+
+    void simplifyUsing9385() {
+        {
+            const char code[] = "class A {\n"
+                                "public:\n"
+                                "    using Foo = int;\n"
+                                "    A(Foo foo);\n"
+                                "    ~A();\n"
+                                "    void func(Foo foo);\n"
+                                "};\n"
+                                "A::A(Foo) { }\n"
+                                "A::~A() { Foo foo; }\n"
+                                "void A::func(Foo) { }";
+            const char exp[] = "class A { "
+                               "public: "
+                               "A ( int foo ) ; "
+                               "~ A ( ) ; "
+                               "void func ( int foo ) ; "
+                               "} ; "
+                               "A :: A ( int ) { } "
+                               "A :: ~ A ( ) { int foo ; } "
+                               "void A :: func ( int ) { }";
+            ASSERT_EQUALS(exp, tok(code, false));
+        }
+        {
+            const char code[] = "class A {\n"
+                                "public:\n"
+                                "    struct B {\n"
+                                "        using Foo = int;\n"
+                                "        B(Foo foo);\n"
+                                "        ~B();\n"
+                                "        void func(Foo foo);\n"
+                                "    };\n"
+                                "};\n"
+                                "A::B::B(Foo) { }\n"
+                                "A::B::~B() { Foo foo; }\n"
+                                "void A::B::func(Foo) { }";
+            const char exp[] = "class A { "
+                               "public: "
+                               "struct B { "
+                               "B ( int foo ) ; "
+                               "~ B ( ) ; "
+                               "void func ( int foo ) ; "
+                               "} ; "
+                               "} ; "
+                               "A :: B :: B ( int ) { } "
+                               "A :: B :: ~ B ( ) { int foo ; } "
+                               "void A :: B :: func ( int ) { }";
+            ASSERT_EQUALS(exp, tok(code, false));
+        }
+    }
+
+    void simplifyUsing9388() {
+        const char code[] = "class A {\n"
+                            "public:\n"
+                            "    using Type = int;\n"
+                            "    A(Type&);\n"
+                            "    Type& t_;\n"
+                            "};\n"
+                            "A::A(Type& t) : t_(t) { }";
+        const char exp[] = "class A { "
+                           "public: "
+                           "A ( int & ) ; "
+                           "int & t_ ; "
+                           "} ; "
+                           "A :: A ( int & t ) : t_ ( t ) { }";
+        ASSERT_EQUALS(exp, tok(code, false));
+    }
+
+    void simplifyUsing9518() {
+        const char code[] = "namespace a {\n"
+                            "using a = enum {};\n"
+                            "}";
+        const char exp[] = "namespace a { "
+                           "enum a { } ; "
+                           "}";
+        ASSERT_EQUALS(exp, tok(code, false));
+    }
+
+    void simplifyUsing9757() {
+        const char code[] = "enum class Type_t { Nil = 0 };\n"
+                            "template<Type_t type> class MappedType { };\n"
+                            "template<> class MappedType<Type_t::Nil> { using type = void; };\n"
+                            "std::string to_string (Example::Type_t type) {\n"
+                            "   switch (type) {}\n"
+                            "}";
+        const char exp[] = "enum class Type_t { Nil = 0 } ; "
+                           "class MappedType<Type_t::Nil> ; "
+                           "template < Type_t type > class MappedType { } ; "
+                           "class MappedType<Type_t::Nil> { } ; "
+                           "std :: string to_string ( Example :: Type_t type ) { "
+                           "switch ( type ) { } }";
+        ASSERT_EQUALS(exp, tok(code, false));
+    }
+
+    void simplifyUsing10008() {
+        const char code[] = "namespace ns {\n"
+                            "    using ArrayType = std::vector<int>;\n"
+                            "}\n"
+                            "using namespace ns;\n"
+                            "static void f() {\n"
+                            "    const ArrayType arr;\n"
+                            "}";
+        const char exp[] = "using namespace ns ; "
+                           "static void f ( ) { "
+                           "const std :: vector < int > arr ; "
+                           "}";
+        ASSERT_EQUALS(exp, tok(code, false));
+    }
+
+    void simplifyUsing10054() { // debug: Executable scope 'x' with unknown function.
+        {
+            // original example: using "namespace external::ns1;" but redundant qualification
+            const char code[] = "namespace external {\n"
+                                "    namespace ns1 {\n"
+                                "        template <int size> struct B { };\n"
+                                "        using V = B<sizeof(bool)>;\n"
+                                "    }\n"
+                                "}\n"
+                                "namespace ns {\n"
+                                "    struct A {\n"
+                                "        void f(external::ns1::V);\n"
+                                "    };\n"
+                                "}\n"
+                                "using namespace external::ns1;\n"
+                                "namespace ns {\n"
+                                "    void A::f(external::ns1::V) {}\n"
+                                "}";
+            const char exp[]  = "namespace external { "
+                                "namespace ns1 { "
+                                "struct B<1> ; "
+                                "} "
+                                "} "
+                                "namespace ns { "
+                                "struct A { "
+                                "void f ( external :: ns1 :: B<1> ) ; "
+                                "} ; "
+                                "} "
+                                "using namespace external :: ns1 ; "
+                                "namespace ns { "
+                                "void A :: f ( external :: ns1 :: B<1> ) { } "
+                                "} "
+                                "struct external :: ns1 :: B<1> { } ;";
+            ASSERT_EQUALS(exp, tok(code, true));
+            ASSERT_EQUALS("", errout.str());
+        }
+        {
+            // no using "namespace external::ns1;"
+            const char code[] = "namespace external {\n"
+                                "    namespace ns1 {\n"
+                                "        template <int size> struct B { };\n"
+                                "        using V = B<sizeof(bool)>;\n"
+                                "    }\n"
+                                "}\n"
+                                "namespace ns {\n"
+                                "    struct A {\n"
+                                "        void f(external::ns1::V);\n"
+                                "    };\n"
+                                "}\n"
+                                "namespace ns {\n"
+                                "    void A::f(external::ns1::V) {}\n"
+                                "}";
+            const char exp[]  = "namespace external { "
+                                "namespace ns1 { "
+                                "struct B<1> ; "
+                                "} "
+                                "} "
+                                "namespace ns { "
+                                "struct A { "
+                                "void f ( external :: ns1 :: B<1> ) ; "
+                                "} ; "
+                                "} "
+                                "namespace ns { "
+                                "void A :: f ( external :: ns1 :: B<1> ) { } "
+                                "} "
+                                "struct external :: ns1 :: B<1> { } ;";
+            ASSERT_EQUALS(exp, tok(code, true));
+            ASSERT_EQUALS("", errout.str());
+        }
+        {
+            // using "namespace external::ns1;" without redundant qualification
+            const char code[] = "namespace external {\n"
+                                "    namespace ns1 {\n"
+                                "        template <int size> struct B { };\n"
+                                "        using V = B<sizeof(bool)>;\n"
+                                "    }\n"
+                                "}\n"
+                                "namespace ns {\n"
+                                "    struct A {\n"
+                                "        void f(external::ns1::V);\n"
+                                "    };\n"
+                                "}\n"
+                                "using namespace external::ns1;\n"
+                                "namespace ns {\n"
+                                "    void A::f(V) {}\n"
+                                "}";
+            const char exp[]  = "namespace external { "
+                                "namespace ns1 { "
+                                "struct B<1> ; "
+                                "} "
+                                "} "
+                                "namespace ns { "
+                                "struct A { "
+                                "void f ( external :: ns1 :: B<1> ) ; "
+                                "} ; "
+                                "} "
+                                "using namespace external :: ns1 ; "
+                                "namespace ns { "
+                                "void A :: f ( external :: ns1 :: B<1> ) { } "
+                                "} "
+                                "struct external :: ns1 :: B<1> { } ;";
+            ASSERT_EQUALS(exp, tok(code, true));
+            ASSERT_EQUALS("", errout.str());
+        }
+        {
+            // using "namespace external::ns1;" without redundant qualification on declaration and definition
+            const char code[] = "namespace external {\n"
+                                "    namespace ns1 {\n"
+                                "        template <int size> struct B { };\n"
+                                "        using V = B<sizeof(bool)>;\n"
+                                "    }\n"
+                                "}\n"
+                                "using namespace external::ns1;\n"
+                                "namespace ns {\n"
+                                "    struct A {\n"
+                                "        void f(V);\n"
+                                "    };\n"
+                                "}\n"
+                                "namespace ns {\n"
+                                "    void A::f(V) {}\n"
+                                "}";
+            const char exp[]  = "namespace external { "
+                                "namespace ns1 { "
+                                "struct B<1> ; "
+                                "} "
+                                "} "
+                                "using namespace external :: ns1 ; "
+                                "namespace ns { "
+                                "struct A { "
+                                "void f ( external :: ns1 :: B<1> ) ; "
+                                "} ; "
+                                "} "
+                                "namespace ns { "
+                                "void A :: f ( external :: ns1 :: B<1> ) { } "
+                                "} "
+                                "struct external :: ns1 :: B<1> { } ;";
+            ASSERT_EQUALS(exp, tok(code, true));
+            ASSERT_EQUALS("", errout.str());
+        }
+        {
+            const char code[] = "namespace external {\n"
+                                "    template <int size> struct B { };\n"
+                                "    namespace ns1 {\n"
+                                "        using V = B<sizeof(bool)>;\n"
+                                "    }\n"
+                                "}\n"
+                                "namespace ns {\n"
+                                "    struct A {\n"
+                                "        void f(external::ns1::V);\n"
+                                "    };\n"
+                                "}\n"
+                                "namespace ns {\n"
+                                "    void A::f(external::ns1::V) {}\n"
+                                "}";
+            const char exp[]  = "namespace external { "
+                                "struct B<1> ; "
+                                "} "
+                                "namespace ns { "
+                                "struct A { "
+                                "void f ( external :: B<1> ) ; "
+                                "} ; "
+                                "} "
+                                "namespace ns { "
+                                "void A :: f ( external :: B<1> ) { } "
+                                "} "
+                                "struct external :: B<1> { } ;";
+            ASSERT_EQUALS(exp, tok(code, true));
+            ASSERT_EQUALS("", errout.str());
+        }
+        {
+            const char code[] = "template <int size> struct B { };\n"
+                                "namespace external {\n"
+                                "    namespace ns1 {\n"
+                                "        using V = B<sizeof(bool)>;\n"
+                                "    }\n"
+                                "}\n"
+                                "namespace ns {\n"
+                                "    struct A {\n"
+                                "        void f(external::ns1::V);\n"
+                                "    };\n"
+                                "}\n"
+                                "namespace ns {\n"
+                                "    void A::f(external::ns1::V) {}\n"
+                                "}";
+            const char exp[]  = "struct B<1> ; "
+                                "namespace ns { "
+                                "struct A { "
+                                "void f ( B<1> ) ; "
+                                "} ; "
+                                "} "
+                                "namespace ns { "
+                                "void A :: f ( B<1> ) { } "
+                                "} "
+                                "struct B<1> { } ;";
+            ASSERT_EQUALS(exp, tok(code, true));
+            ASSERT_EQUALS("", errout.str());
+        }
+    }
+
+    void simplifyUsing10136() {
+        {
+            const char code[] = "class B {\n"
+                                "public:\n"
+                                "    using V = std::vector<char>;\n"
+                                "    virtual void f(const V&) const = 0;\n"
+                                "};\n"
+                                "class A final : public B {\n"
+                                "public:\n"
+                                "    void f(const V&) const override;\n"
+                                "};\n"
+                                "void A::f(const std::vector<char>&) const { }";
+            const char exp[]  = "class B { "
+                                "public: "
+                                "virtual void f ( const std :: vector < char > & ) const = 0 ; "
+                                "} ; "
+                                "class A : public B { "
+                                "public: "
+                                "void f ( const std :: vector < char > & ) const override ; "
+                                "} ; "
+                                "void A :: f ( const std :: vector < char > & ) const { }";
+            ASSERT_EQUALS(exp, tok(code, true));
+            ASSERT_EQUALS("", errout.str());
+        }
+        {
+            const char code[] = "namespace NS1 {\n"
+                                "    class B {\n"
+                                "    public:\n"
+                                "        using V = std::vector<char>;\n"
+                                "        virtual void f(const V&) const = 0;\n"
+                                "    };\n"
+                                "}\n"
+                                "namespace NS2 {\n"
+                                "    class A : public NS1::B {\n"
+                                "    public:\n"
+                                "        void f(const V&) const override;\n"
+                                "    };\n"
+                                "    namespace NS3 {\n"
+                                "        class C : public A {\n"
+                                "        public:\n"
+                                "            void f(const V&) const override;\n"
+                                "        };\n"
+                                "        void C::f(const V&) const { }\n"
+                                "    }\n"
+                                "    void A::f(const V&) const { }\n"
+                                "}\n"
+                                "void foo() {\n"
+                                "    NS2::A a;\n"
+                                "    NS2::NS3::C c;\n"
+                                "    NS1::B::V v;\n"
+                                "    a.f(v);\n"
+                                "    c.f(v);\n"
+                                "}";
+            const char exp[]  = "namespace NS1 { "
+                                "class B { "
+                                "public: "
+                                "virtual void f ( const std :: vector < char > & ) const = 0 ; "
+                                "} ; "
+                                "} "
+                                "namespace NS2 { "
+                                "class A : public NS1 :: B { "
+                                "public: "
+                                "void f ( const std :: vector < char > & ) const override ; "
+                                "} ; "
+                                "namespace NS3 { "
+                                "class C : public A { "
+                                "public: "
+                                "void f ( const std :: vector < char > & ) const override ; "
+                                "} ; "
+                                "void C :: f ( const std :: vector < char > & ) const { } "
+                                "} "
+                                "void A :: f ( const std :: vector < char > & ) const { } "
+                                "} "
+                                "void foo ( ) { "
+                                "NS2 :: A a ; "
+                                "NS2 :: NS3 :: C c ; "
+                                "std :: vector < char > v ; "
+                                "a . f ( v ) ; "
+                                "c . f ( v ) ; "
+                                "}";
+            ASSERT_EQUALS(exp, tok(code, true));
+            ASSERT_EQUALS("", errout.str());
+        }
+        {
+            const char code[] = "foo::ResultCodes_e\n"
+                                "GemImpl::setR(const ::foo::s _ipSource)\n"
+                                "{\n"
+                                "   M3_LOG_EE_DEBUG();\n"
+                                "   using MLSource = foo::s::Literal;\n"
+                                "   auto ret = foo::ResultCodes_e::NO_ERROR;\n"
+                                "   M3_LOG_INFO(\"foo(\" << static_cast<int>(_ipSource) << \")\");\n"
+                                "   return ret;\n"
+                                "}\n"
+                                "foo::ResultCodes_e\n"
+                                "GemImpl::getF(::foo::s &_ipSource)\n"
+                                "{\n"
+                                "   M3_LOG_EE_DEBUG();\n"
+                                "   auto ret = foo::ResultCodes_e::NO_ERROR;\n"
+                                "   return ret;\n"
+                                "}\n"
+                                "foo::ResultCodes_e\n"
+                                "GemImpl::setF(const ::foo::s _ipSource)\n"
+                                "{\n"
+                                "   M3_LOG_EE_DEBUG();\n"
+                                "   using MLSource = foo::s::Literal;\n"
+                                "   auto ret = foo::ResultCodes_e::NO_ERROR;\n"
+                                "   return ret;\n"
+                                "}";
+            tok(code, true); // don't crash
+        }
+    }
+
+    void simplifyUsing10171() {
+        const char code[] = "namespace ns {\n"
+                            "    class A {\n"
+                            "    public:\n"
+                            "        using V = std::vector<unsigned char>;\n"
+                            "        virtual void f(const V&) const = 0;\n"
+                            "    };\n"
+                            "    class B : public A {\n"
+                            "    public:\n"
+                            "        void f(const V&) const override;\n"
+                            "    };\n"
+                            "}\n"
+                            "namespace ns {\n"
+                            "    void B::f(const std::vector<unsigned char>&) const { }\n"
+                            "}";
+        const char exp[] = "namespace ns { "
+                           "class A { "
+                           "public: "
+                           "virtual void f ( const std :: vector < unsigned char > & ) const = 0 ; "
+                           "} ; "
+                           "class B : public A { "
+                           "public: "
+                           "void f ( const std :: vector < unsigned char > & ) const override ; "
+                           "} ; "
+                           "} "
+                           "namespace ns { "
+                           "void B :: f ( const std :: vector < unsigned char > & ) const { } "
+                           "}";
+        ASSERT_EQUALS(exp, tok(code, false));
+        ASSERT_EQUALS("", errout.str());
+    }
+
+    void simplifyUsing10172() {
+        {
+            const char code[] = "namespace ns {\n"
+                                "    class A {\n"
+                                "    public:\n"
+                                "        using h = std::function<void()>;\n"
+                                "    };\n"
+                                "    class B : public A {\n"
+                                "        void f(h);\n"
+                                "    };\n"
+                                "}\n"
+                                "namespace ns {\n"
+                                "    void B::f(h) { }\n"
+                                "}";
+            const char exp[] = "namespace ns { "
+                               "class A { "
+                               "public: "
+                               "} ; "
+                               "class B : public A { "
+                               "void f ( std :: function < void ( ) > ) ; "
+                               "} ; "
+                               "} "
+                               "namespace ns { "
+                               "void B :: f ( std :: function < void ( ) > ) { } "
+                               "}";
+            ASSERT_EQUALS(exp, tok(code, false));
+            ASSERT_EQUALS("", errout.str());
+        }
+        {
+            const char code[] = "namespace ns {\n"
+                                "namespace external {\n"
+                                "class A {\n"
+                                "public: \n"
+                                "  using h = std::function<void()>;\n"
+                                "};\n"
+                                "class B : public A {\n"
+                                "  void f(h);\n"
+                                "};\n"
+                                "}\n"
+                                "}\n"
+                                "namespace ns {\n"
+                                "namespace external {\n"
+                                "void B::f(h) {}\n"
+                                "}\n"
+                                "}";
+            const char exp[] = "namespace ns { "
+                               "namespace external { "
+                               "class A { "
+                               "public: "
+                               "} ; "
+                               "class B : public A { "
+                               "void f ( std :: function < void ( ) > ) ; "
+                               "} ; "
+                               "} "
+                               "} "
+                               "namespace ns { "
+                               "namespace external { "
+                               "void B :: f ( std :: function < void ( ) > ) { } "
+                               "} "
+                               "}";
+            ASSERT_EQUALS(exp, tok(code, false));
+            ASSERT_EQUALS("", errout.str());
+        }
+    }
+
+    void simplifyUsing10173() {
+        {
+            const char code[] = "std::ostream & operator<<(std::ostream &s, const Pr<st> p) {\n"
+                                "    return s;\n"
+                                "}\n"
+                                "void foo() {\n"
+                                "    using Pr = d::Pr<st>;\n"
+                                "    Pr p;\n"
+                                "}\n"
+                                "void bar() {\n"
+                                "   Pr<st> p;\n"
+                                "}";
+            const char exp[]  = "std :: ostream & operator<< ( std :: ostream & s , const Pr < st > p ) { "
+                                "return s ; "
+                                "} "
+                                "void foo ( ) { "
+                                "d :: Pr < st > p ; "
+                                "} "
+                                "void bar ( ) { "
+                                "Pr < st > p ; "
+                                "}";
+            ASSERT_EQUALS(exp, tok(code, true));
+            ASSERT_EQUALS("", errout.str());
+        }
+        {
+            const char code[] = "namespace defsa {\n"
+                                "void xxx::foo() {\n"
+                                "   using NS1 = v1::l;\n"
+                                "}\n"
+                                "void xxx::bar() {\n"
+                                "   using NS1 = v1::l;\n"
+                                "}\n"
+                                "void xxx::foobar() {\n"
+                                "   using NS1 = v1::l;\n"
+                                "}\n"
+                                "}";
+            const char exp[]  = "namespace defsa { "
+                                "void xxx :: foo ( ) { "
+                                "} "
+                                "void xxx :: bar ( ) { "
+                                "} "
+                                "void xxx :: foobar ( ) { "
+                                "} "
+                                "}";
+            ASSERT_EQUALS(exp, tok(code, true));
+        }
+    }
 };
 
 REGISTER_TEST(TestSimplifyUsing)

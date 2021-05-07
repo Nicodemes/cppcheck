@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2019 Cppcheck team.
+ * Copyright (C) 2007-2021 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,7 +45,7 @@ private:
     }
 
     void run() OVERRIDE {
-        settings.addEnabled("warning");
+        settings.severity.enable(Severity::warning);
 
         TEST_CASE(wrongParameterTo_va_start);
         TEST_CASE(referenceAs_va_start);
@@ -167,7 +167,7 @@ private:
               "        return va_arg(ap, const char*);\n"
               "    });\n"
               "    va_end(ap);\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("", errout.str());
 
         check("void f(int n, ...)\n"
@@ -179,7 +179,7 @@ private:
               "    {\n"
               "        return va_arg(ap, const char*);\n"
               "    });\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("[test.cpp:10]: (error) va_list 'ap' was opened but not closed by va_end().\n", errout.str());
     }
 

@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2017 Cppcheck team.
+ * Copyright (C) 2007-2020 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,18 +16,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "threadresult.h"
+
 #include <QFile>
-#include <QString>
-#include <QMutexLocker>
-#include <QList>
-#include <QStringList>
-#include <QDebug>
 #include "common.h"
 #include "erroritem.h"
 #include "errorlogger.h"
-#include "threadresult.h"
 
-ThreadResult::ThreadResult() : mMaxProgress(0), mProgress(0), mFilesChecked(0), mTotalFiles(0)
+ThreadResult::ThreadResult() : QObject(), ErrorLogger(), mMaxProgress(0), mProgress(0), mFilesChecked(0), mTotalFiles(0)
 {
     //ctor
 }
@@ -57,11 +53,11 @@ void ThreadResult::fileChecked(const QString &file)
     }
 }
 
-void ThreadResult::reportErr(const ErrorLogger::ErrorMessage &msg)
+void ThreadResult::reportErr(const ErrorMessage &msg)
 {
     QMutexLocker locker(&mutex);
     const ErrorItem item(msg);
-    if (msg._severity != Severity::debug)
+    if (msg.severity != Severity::debug)
         emit error(item);
     else
         emit debugError(item);
@@ -136,4 +132,11 @@ int ThreadResult::getFileCount() const
 {
     QMutexLocker locker(&mutex);
     return mFiles.size() + mFileSettings.size();
+}
+
+void ThreadResult::bughuntingReport(const std::string &str)
+{
+    if (str.empty())
+        return;
+    emit bughuntingReportLine(QString::fromStdString(str));
 }

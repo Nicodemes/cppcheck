@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2018 Cppcheck team.
+ * Copyright (C) 2007-2021 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,7 +22,6 @@
 #include "settings.h"
 #include "symboldatabase.h"
 
-#include <cstddef>
 #include <set>
 #include <utility>
 
@@ -38,7 +37,7 @@ namespace {
 
 void CheckExceptionSafety::destructors()
 {
-    if (!mSettings->isEnabled(Settings::WARNING))
+    if (!mSettings->severity.isEnabled(Severity::warning))
         return;
 
     const SymbolDatabase* const symbolDatabase = mTokenizer->getSymbolDatabase();
@@ -78,10 +77,10 @@ void CheckExceptionSafety::destructors()
 
 void CheckExceptionSafety::deallocThrow()
 {
-    if (!mSettings->isEnabled(Settings::WARNING))
+    if (!mSettings->severity.isEnabled(Severity::warning))
         return;
 
-    const bool printInconclusive = mSettings->inconclusive;
+    const bool printInconclusive = mSettings->certainty.isEnabled(Certainty::inconclusive);
     const SymbolDatabase* const symbolDatabase = mTokenizer->getSymbolDatabase();
 
     // Deallocate a global/member pointer and then throw exception
@@ -145,7 +144,7 @@ void CheckExceptionSafety::deallocThrow()
 //---------------------------------------------------------------------------
 void CheckExceptionSafety::checkRethrowCopy()
 {
-    if (!mSettings->isEnabled(Settings::STYLE))
+    if (!mSettings->severity.isEnabled(Severity::style))
         return;
 
     const SymbolDatabase* const symbolDatabase = mTokenizer->getSymbolDatabase();
@@ -161,6 +160,12 @@ void CheckExceptionSafety::checkRethrowCopy()
                     tok = tok->next()->link()->next()->link();
                     if (!tok)
                         break;
+                } else if (Token::Match(tok, "%varid% .", varid)) {
+                    const Token *parent = tok->astParent();
+                    while (Token::simpleMatch(parent->astParent(), "."))
+                        parent = parent->astParent();
+                    if (Token::Match(parent->astParent(), "%assign%|++|--|(") && parent == parent->astParent()->astOperand1())
+                        break;
                 } else if (Token::Match(tok, "throw %varid% ;", varid))
                     rethrowCopyError(tok, tok->strAt(1));
             }
@@ -173,7 +178,7 @@ void CheckExceptionSafety::checkRethrowCopy()
 //---------------------------------------------------------------------------
 void CheckExceptionSafety::checkCatchExceptionByValue()
 {
-    if (!mSettings->isEnabled(Settings::STYLE))
+    if (!mSettings->severity.isEnabled(Severity::style))
         return;
 
     const SymbolDatabase* const symbolDatabase = mTokenizer->getSymbolDatabase();
@@ -275,7 +280,7 @@ void CheckExceptionSafety::nothrowThrows()
 //--------------------------------------------------------------------------
 void CheckExceptionSafety::unhandledExceptionSpecification()
 {
-    if (!mSettings->isEnabled(Settings::STYLE) || !mSettings->inconclusive)
+    if (!mSettings->severity.isEnabled(Severity::style) || !mSettings->certainty.isEnabled(Certainty::inconclusive))
         return;
 
     const SymbolDatabase* const symbolDatabase = mTokenizer->getSymbolDatabase();

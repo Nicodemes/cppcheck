@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2019 Cppcheck team.
+ * Copyright (C) 2007-2021 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,17 +25,24 @@
 #include "check.h"
 #include "config.h"
 #include "ctu.h"
-#include "errorlogger.h"
+#include "errortypes.h"
 #include "mathlib.h"
-#include "tokenize.h"
 #include "symboldatabase.h"
+#include "valueflow.h"
 
-#include <cstddef>
 #include <list>
 #include <map>
 #include <string>
 #include <vector>
 
+namespace tinyxml2 {
+    class XMLElement;
+}
+
+class ErrorLogger;
+class Settings;
+class Token;
+class Tokenizer;
 
 /// @addtogroup Checks
 /// @{
@@ -68,6 +75,7 @@ public:
         checkBufferOverrun.bufferOverflow();
         checkBufferOverrun.arrayIndexThenCheck();
         checkBufferOverrun.stringNotZeroTerminated();
+        checkBufferOverrun.objectIndex();
     }
 
     void getErrorMessages(ErrorLogger *errorLogger, const Settings *settings) const OVERRIDE {
@@ -76,7 +84,8 @@ public:
         c.pointerArithmeticError(nullptr, nullptr, nullptr);
         c.negativeIndexError(nullptr, std::vector<Dimension>(), std::vector<const ValueFlow::Value *>());
         c.arrayIndexThenCheckError(nullptr, "i");
-        c.bufferOverflowError(nullptr, nullptr);
+        c.bufferOverflowError(nullptr, nullptr, Certainty::normal);
+        c.objectIndexError(nullptr, nullptr, true);
     }
 
     /** @brief Parse current TU and extract file info */
@@ -95,14 +104,16 @@ private:
     void pointerArithmeticError(const Token *tok, const Token *indexToken, const ValueFlow::Value *indexValue);
 
     void bufferOverflow();
-    void bufferOverflowError(const Token *tok, const ValueFlow::Value *value);
+    void bufferOverflowError(const Token *tok, const ValueFlow::Value *value, const Certainty::CertaintyLevel& certainty);
 
     void arrayIndexThenCheck();
     void arrayIndexThenCheckError(const Token *tok, const std::string &indexName);
 
     void stringNotZeroTerminated();
     void terminateStrncpyError(const Token *tok, const std::string &varname);
-    void bufferNotZeroTerminatedError(const Token *tok, const std::string &varname, const std::string &function);
+
+    void objectIndex();
+    void objectIndexError(const Token *tok, const ValueFlow::Value *v, bool known);
 
     ValueFlow::Value getBufferSize(const Token *bufTok) const;
 
@@ -121,12 +132,12 @@ private:
         std::string toString() const OVERRIDE;
     };
 
-    static bool isCtuUnsafeBufferUsage(const Check *check, const Token *argtok, MathLib::bigint *value, int type);
-    static bool isCtuUnsafeArrayIndex(const Check *check, const Token *argtok, MathLib::bigint *value);
-    static bool isCtuUnsafePointerArith(const Check *check, const Token *argtok, MathLib::bigint *value);
+    static bool isCtuUnsafeBufferUsage(const Check *check, const Token *argtok, MathLib::bigint *offset, int type);
+    static bool isCtuUnsafeArrayIndex(const Check *check, const Token *argtok, MathLib::bigint *offset);
+    static bool isCtuUnsafePointerArith(const Check *check, const Token *argtok, MathLib::bigint *offset);
 
     Check::FileInfo * loadFileInfoFromXml(const tinyxml2::XMLElement *xmlElement) const OVERRIDE;
-    bool analyseWholeProgram1(const CTU::FileInfo *ctu, const std::map<std::string, std::list<const CTU::FileInfo::CallBase *>> &callsMap, const CTU::FileInfo::UnsafeUsage &unsafeUsage, int type, ErrorLogger &errorLogger);
+    static bool analyseWholeProgram1(const std::map<std::string, std::list<const CTU::FileInfo::CallBase *>> &callsMap, const CTU::FileInfo::UnsafeUsage &unsafeUsage, int type, ErrorLogger &errorLogger);
 
 
     static std::string myName() {

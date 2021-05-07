@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2017 Cppcheck team.
+ * Copyright (C) 2007-2020 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,7 +33,7 @@ class ApplicationList : public QObject {
     Q_OBJECT
 public:
 
-    explicit ApplicationList(QObject *parent = 0);
+    explicit ApplicationList(QObject *parent = nullptr);
     virtual ~ApplicationList();
 
     /**
@@ -116,7 +116,7 @@ protected:
 
 private:
 
-    bool checkAndAddApplication(QString appPath, QString name, QString parameters);
+    bool checkAndAddApplication(const QString& appPath, const QString& name, const QString& parameters);
 
     /**
     * @brief List of applications

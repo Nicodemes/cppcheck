@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2019 Cppcheck team.
+ * Copyright (C) 2007-2021 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,14 +31,14 @@ std::ostringstream output;
 /**
  * TestRegistry
  **/
-
-struct CompareFixtures {
-    bool operator()(const TestFixture* lhs, const TestFixture* rhs) const {
-        return lhs->classname < rhs->classname;
-    }
-};
-
-typedef std::set<TestFixture*, CompareFixtures> TestSet;
+namespace {
+    struct CompareFixtures {
+        bool operator()(const TestFixture* lhs, const TestFixture* rhs) const {
+            return lhs->classname < rhs->classname;
+        }
+    };
+}
+using TestSet = std::set<TestFixture*, CompareFixtures>;
 class TestRegistry {
     TestSet _tests;
 public:
@@ -105,9 +105,7 @@ bool TestFixture::prepareTest(const char testname[])
 
 std::string TestFixture::getLocationStr(const char * const filename, const unsigned int linenr) const
 {
-    std::ostringstream ret;
-    ret << filename << ':' << linenr << '(' << classname << "::" << mTestname << ')';
-    return ret.str();
+    return std::string(filename) + ':' + std::to_string(linenr) + '(' + classname + "::" + mTestname + ')';
 }
 
 static std::string writestr(const std::string &str, bool gccStyle = false)
@@ -134,27 +132,34 @@ static std::string writestr(const std::string &str, bool gccStyle = false)
     return ostr.str();
 }
 
-void TestFixture::assert_(const char * const filename, const unsigned int linenr, const bool condition) const
+bool TestFixture::assert_(const char * const filename, const unsigned int linenr, const bool condition) const
 {
     if (!condition) {
         ++fails_counter;
         errmsg << getLocationStr(filename, linenr) << ": Assertion failed." << std::endl << "_____" << std::endl;
     }
+    return condition;
 }
 
-void TestFixture::assertEquals(const char * const filename, const unsigned int linenr, const std::string &expected, const std::string &actual, const std::string &msg) const
+void TestFixture::assertEqualsFailed(const char* const filename, const unsigned int linenr, const std::string& expected, const std::string& actual, const std::string& msg) const
+{
+    ++fails_counter;
+    errmsg << getLocationStr(filename, linenr) << ": Assertion failed. " << std::endl
+           << "Expected: " << std::endl
+           << writestr(expected) << std::endl
+           << "Actual: " << std::endl
+           << writestr(actual) << std::endl;
+    if (!msg.empty())
+        errmsg << "Hint:" << std::endl << msg << std::endl;
+    errmsg << "_____" << std::endl;
+}
+
+bool TestFixture::assertEquals(const char * const filename, const unsigned int linenr, const std::string &expected, const std::string &actual, const std::string &msg) const
 {
     if (expected != actual) {
-        ++fails_counter;
-        errmsg << getLocationStr(filename, linenr) << ": Assertion failed. " << std::endl
-               << "Expected: " <<  std::endl
-               << writestr(expected)  << std::endl
-               << "Actual: " << std::endl
-               << writestr(actual) << std::endl;
-        if (!msg.empty())
-            errmsg << "Hint:" << std::endl <<  msg << std::endl;
-        errmsg << "_____" << std::endl;
+        assertEqualsFailed(filename, linenr, expected, actual, msg);
     }
+    return expected == actual;
 }
 
 std::string TestFixture::deleteLineNumber(const std::string &message) const
@@ -186,20 +191,20 @@ void TestFixture::assertEqualsWithoutLineNumbers(const char * const filename, co
     assertEquals(filename, linenr, deleteLineNumber(expected), deleteLineNumber(actual), msg);
 }
 
-void TestFixture::assertEquals(const char * const filename, const unsigned int linenr, const char expected[], const std::string& actual, const std::string &msg) const
+bool TestFixture::assertEquals(const char * const filename, const unsigned int linenr, const char expected[], const std::string& actual, const std::string &msg) const
 {
-    assertEquals(filename, linenr, std::string(expected), actual, msg);
+    return assertEquals(filename, linenr, std::string(expected), actual, msg);
 }
-void TestFixture::assertEquals(const char * const filename, const unsigned int linenr, const char expected[], const char actual[], const std::string &msg) const
+bool TestFixture::assertEquals(const char * const filename, const unsigned int linenr, const char expected[], const char actual[], const std::string &msg) const
 {
-    assertEquals(filename, linenr, std::string(expected), std::string(actual), msg);
+    return assertEquals(filename, linenr, std::string(expected), std::string(actual), msg);
 }
-void TestFixture::assertEquals(const char * const filename, const unsigned int linenr, const std::string& expected, const char actual[], const std::string &msg) const
+bool TestFixture::assertEquals(const char * const filename, const unsigned int linenr, const std::string& expected, const char actual[], const std::string &msg) const
 {
-    assertEquals(filename, linenr, expected, std::string(actual), msg);
+    return assertEquals(filename, linenr, expected, std::string(actual), msg);
 }
 
-void TestFixture::assertEquals(const char * const filename, const unsigned int linenr, const long long expected, const long long actual, const std::string &msg) const
+bool TestFixture::assertEquals(const char * const filename, const unsigned int linenr, const long long expected, const long long actual, const std::string &msg) const
 {
     if (expected != actual) {
         std::ostringstream ostr1;
@@ -208,6 +213,7 @@ void TestFixture::assertEquals(const char * const filename, const unsigned int l
         ostr2 << actual;
         assertEquals(filename, linenr, ostr1.str(), ostr2.str(), msg);
     }
+    return expected == actual;
 }
 
 void TestFixture::assertEqualsDouble(const char * const filename, const unsigned int linenr, const double expected, const double actual, const double tolerance, const std::string &msg) const
@@ -236,6 +242,15 @@ void TestFixture::todoAssertEquals(const char * const filename, const unsigned i
         ++todos_counter;
     }
 }
+
+void TestFixture::todoAssertEquals(const char* const filename, const unsigned int linenr,
+                                   const char wanted[],
+                                   const char current[],
+                                   const std::string& actual) const
+{
+    todoAssertEquals(filename, linenr, std::string(wanted), std::string(current), actual);
+}
+
 
 void TestFixture::todoAssertEquals(const char * const filename, const unsigned int linenr, const long long wanted, const long long current, const long long actual) const
 {
@@ -316,17 +331,14 @@ std::size_t TestFixture::runTests(const options& args)
     countTests = 0;
     errmsg.str("");
 
-    const std::set<std::string>& tests = args.which_test();
-    for (std::string classname : tests) {
+    for (std::string classname : args.which_test()) {
         std::string testname;
         if (classname.find("::") != std::string::npos) {
             testname = classname.substr(classname.find("::") + 2);
             classname.erase(classname.find("::"));
         }
 
-        const TestSet &tests = TestRegistry::theInstance().tests();
-
-        for (TestFixture * test : tests) {
+        for (TestFixture * test : TestRegistry::theInstance().tests()) {
             if (classname.empty() || test->classname == classname) {
                 test->processOptions(args);
                 test->run(testname);
@@ -347,8 +359,8 @@ std::size_t TestFixture::runTests(const options& args)
 
     if (!missingLibs.empty()) {
         std::cerr << "Missing libraries: ";
-        for (std::set<std::string>::const_iterator i = missingLibs.begin(); i != missingLibs.end(); ++i)
-            std::cerr << *i << "  ";
+        for (const std::string & missingLib : missingLibs)
+            std::cerr << missingLib << "  ";
         std::cerr << std::endl << std::endl;
     }
     std::cerr.flush();
@@ -360,7 +372,7 @@ void TestFixture::reportOut(const std::string & outmsg)
     output << outmsg << std::endl;
 }
 
-void TestFixture::reportErr(const ErrorLogger::ErrorMessage &msg)
+void TestFixture::reportErr(const ErrorMessage &msg)
 {
     const std::string errormessage(msg.toString(mVerbose, mTemplateFormat, mTemplateLocation));
     if (errout.str().find(errormessage) == std::string::npos)

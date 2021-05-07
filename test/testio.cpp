@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2019 Cppcheck team.
+ * Copyright (C) 2007-2021 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -73,18 +73,19 @@ private:
 
         TEST_CASE(testPrintfTypeAlias1);
         TEST_CASE(testPrintfAuto); // #8992
+        TEST_CASE(testPrintfParenthesis); // #8489
     }
 
-    void check(const char* code, bool inconclusive = false, bool portability = false, Settings::PlatformType platform = Settings::Unspecified) {
+    void check(const char* code, bool inconclusive = false, bool portability = false, Settings::PlatformType platform = Settings::Unspecified, bool onlyFormatStr = false) {
         // Clear the error buffer..
         errout.str("");
 
-        settings.clearEnabled();
-        settings.addEnabled("warning");
-        settings.addEnabled("style");
+        settings.severity.clear();
+        settings.severity.enable(Severity::warning);
+        settings.severity.enable(Severity::style);
         if (portability)
-            settings.addEnabled("portability");
-        settings.inconclusive = inconclusive;
+            settings.severity.enable(Severity::portability);
+        settings.certainty.setEnabled(Certainty::inconclusive, inconclusive);
         settings.platform(platform);
 
         // Tokenize..
@@ -95,12 +96,11 @@ private:
         // Check..
         CheckIO checkIO(&tokenizer, &settings, this);
         checkIO.checkWrongPrintfScanfArguments();
-
-        // Simplify token list..
-        tokenizer.simplifyTokenList2();
-        checkIO.checkCoutCerrMisusage();
-        checkIO.checkFileUsage();
-        checkIO.invalidScanf();
+        if (!onlyFormatStr) {
+            checkIO.checkCoutCerrMisusage();
+            checkIO.checkFileUsage();
+            checkIO.invalidScanf();
+        }
     }
 
     void coutCerrMisusage() {
@@ -531,7 +531,7 @@ private:
               "    FILE *a = fopen(\"aa\", \"r\");\n"
               "    while (fclose(a)) {}\n"
               "}");
-        ASSERT_EQUALS("[test.cpp:3]: (error) Used file that is not opened.\n", errout.str());
+        TODO_ASSERT_EQUALS("[test.cpp:3]: (error) Used file that is not opened.\n", "", errout.str());
 
         // #6823
         check("void foo() {\n"
@@ -785,88 +785,86 @@ private:
 #define TEST_PRINTF_ERR_AKA(format, requiredType, actualType, akaType)\
     "[test.cpp:1]: (portability) " format " in format string (no. 1) requires '" requiredType "' but the argument type is '" actualType " {aka " akaType "}'.\n"
 
-    void testScanfNoWarn(const char *filename, unsigned int linenr, const char* code) {
-        check(code, true, false, Settings::Unix32);
-        assertEquals(filename, linenr, "", errout.str());
-        check(code, true, false, Settings::Unix64);
-        assertEquals(filename, linenr, "", errout.str());
-        check(code, true, false, Settings::Win32A);
-        assertEquals(filename, linenr, "", errout.str());
-        check(code, true, false, Settings::Win64);
-        assertEquals(filename, linenr, "", errout.str());
+    void testFormatStrNoWarn(const char *filename, unsigned int linenr, const char* code) {
+        check(code, true, false, Settings::Unix32, true);
+        assertEquals(filename, linenr, emptyString, errout.str());
+        check(code, true, false, Settings::Unix64, true);
+        assertEquals(filename, linenr, emptyString, errout.str());
+        check(code, true, false, Settings::Win32A, true);
+        assertEquals(filename, linenr, emptyString, errout.str());
+        check(code, true, false, Settings::Win64, true);
+        assertEquals(filename, linenr, emptyString, errout.str());
     }
 
-    void testScanfWarn(const char *filename, unsigned int linenr,
-                       const char* code, const char* testScanfErrString) {
-        check(code, true, false, Settings::Unix32);
+    void testFormatStrWarn(const char *filename, unsigned int linenr,
+                           const char* code, const char* testScanfErrString) {
+        check(code, true, false, Settings::Unix32, true);
         assertEquals(filename, linenr, testScanfErrString, errout.str());
-        check(code, true, false, Settings::Unix64);
+        check(code, true, false, Settings::Unix64, true);
         assertEquals(filename, linenr, testScanfErrString, errout.str());
-        check(code, true, false, Settings::Win32A);
+        check(code, true, false, Settings::Win32A, true);
         assertEquals(filename, linenr, testScanfErrString, errout.str());
-        check(code, true, false, Settings::Win64);
+        check(code, true, false, Settings::Win64, true);
         assertEquals(filename, linenr, testScanfErrString, errout.str());
     }
 
-    void testScanfWarnAka(const char *filename, unsigned int linenr,
-                          const char* code, const char* testScanfErrAkaString, const char* testScanfErrAkaWin64String) {
-        check(code, true, true, Settings::Unix32);
+    void testFormatStrWarnAka(const char *filename, unsigned int linenr,
+                              const char* code, const char* testScanfErrAkaString, const char* testScanfErrAkaWin64String) {
+        check(code, true, true, Settings::Unix32, true);
         assertEquals(filename, linenr, testScanfErrAkaString, errout.str());
-        check(code, true, true, Settings::Unix64);
+        check(code, true, true, Settings::Unix64, true);
         assertEquals(filename, linenr, testScanfErrAkaString, errout.str());
-        check(code, true, true, Settings::Win32A);
+        check(code, true, true, Settings::Win32A, true);
         assertEquals(filename, linenr, testScanfErrAkaString, errout.str());
-        check(code, true, true, Settings::Win64);
+        check(code, true, true, Settings::Win64, true);
         assertEquals(filename, linenr, testScanfErrAkaWin64String, errout.str());
     }
 
-    void testScanfWarnAkaWin64(const char *filename, unsigned int linenr,
-                               const char* code, const char* testScanfErrAkaWin64String) {
-        check(code, true, true, Settings::Unix32);
-        assertEquals(filename, linenr, "", errout.str());
-        check(code, true, true, Settings::Unix64);
-        assertEquals(filename, linenr, "", errout.str());
-        check(code, true, true, Settings::Win32A);
-        assertEquals(filename, linenr, "", errout.str());
-        check(code, true, true, Settings::Win64);
+    void testFormatStrWarnAkaWin64(const char *filename, unsigned int linenr,
+                                   const char* code, const char* testScanfErrAkaWin64String) {
+        check(code, true, true, Settings::Unix32, true);
+        assertEquals(filename, linenr, emptyString, errout.str());
+        check(code, true, true, Settings::Unix64, true);
+        assertEquals(filename, linenr, emptyString, errout.str());
+        check(code, true, true, Settings::Win32A, true);
+        assertEquals(filename, linenr, emptyString, errout.str());
+        check(code, true, true, Settings::Win64, true);
         assertEquals(filename, linenr, testScanfErrAkaWin64String, errout.str());
     }
 
-    void testScanfWarnAkaWin32(const char *filename, unsigned int linenr,
-                               const char* code, const char* testScanfErrAkaString) {
-        check(code, true, true, Settings::Unix32);
+    void testFormatStrWarnAkaWin32(const char *filename, unsigned int linenr,
+                                   const char* code, const char* testScanfErrAkaString) {
+        check(code, true, true, Settings::Unix32, true);
         assertEquals(filename, linenr, testScanfErrAkaString, errout.str());
-        check(code, true, true, Settings::Unix64);
+        check(code, true, true, Settings::Unix64, true);
         assertEquals(filename, linenr, testScanfErrAkaString, errout.str());
-        check(code, true, true, Settings::Win32A);
+        check(code, true, true, Settings::Win32A, true);
         assertEquals(filename, linenr, testScanfErrAkaString, errout.str());
-        check(code, true, true, Settings::Win64);
-        assertEquals(filename, linenr, "", errout.str());
+        check(code, true, true, Settings::Win64, true);
+        assertEquals(filename, linenr, emptyString, errout.str());
     }
 
 #define TEST_SCANF_NOWARN(FORMAT, FORMATSTR, TYPE) \
-    testScanfNoWarn(__FILE__, __LINE__, TEST_SCANF_CODE(FORMAT, TYPE))
+    testFormatStrNoWarn(__FILE__, __LINE__, TEST_SCANF_CODE(FORMAT, TYPE))
 #define TEST_SCANF_WARN(FORMAT, FORMATSTR, TYPE) \
-    testScanfWarn(__FILE__, __LINE__, TEST_SCANF_CODE(FORMAT, TYPE), TEST_SCANF_ERR(FORMAT, FORMATSTR, TYPE))
+    testFormatStrWarn(__FILE__, __LINE__, TEST_SCANF_CODE(FORMAT, TYPE), TEST_SCANF_ERR(FORMAT, FORMATSTR, TYPE))
 #define TEST_SCANF_WARN_AKA(FORMAT, FORMATSTR, TYPE, AKATYPE, AKATYPE_WIN64) \
-    testScanfWarnAka(__FILE__, __LINE__, TEST_SCANF_CODE(FORMAT, TYPE), TEST_SCANF_ERR_AKA(FORMAT, FORMATSTR, TYPE, AKATYPE), TEST_SCANF_ERR_AKA(FORMAT, FORMATSTR, TYPE, AKATYPE_WIN64))
+    testFormatStrWarnAka(__FILE__, __LINE__, TEST_SCANF_CODE(FORMAT, TYPE), TEST_SCANF_ERR_AKA(FORMAT, FORMATSTR, TYPE, AKATYPE), TEST_SCANF_ERR_AKA(FORMAT, FORMATSTR, TYPE, AKATYPE_WIN64))
 #define TEST_SCANF_WARN_AKA_WIN64(FORMAT, FORMATSTR, TYPE, AKATYPE_WIN64) \
-    testScanfWarnAkaWin64(__FILE__, __LINE__, TEST_SCANF_CODE(FORMAT, TYPE), TEST_SCANF_ERR_AKA(FORMAT, FORMATSTR, TYPE, AKATYPE_WIN64))
+    testFormatStrWarnAkaWin64(__FILE__, __LINE__, TEST_SCANF_CODE(FORMAT, TYPE), TEST_SCANF_ERR_AKA(FORMAT, FORMATSTR, TYPE, AKATYPE_WIN64))
 #define TEST_SCANF_WARN_AKA_WIN32(FORMAT, FORMATSTR, TYPE, AKATYPE_WIN32) \
-    testScanfWarnAkaWin32(__FILE__, __LINE__, TEST_SCANF_CODE(FORMAT, TYPE), TEST_SCANF_ERR_AKA(FORMAT, FORMATSTR, TYPE, AKATYPE_WIN32))
+    testFormatStrWarnAkaWin32(__FILE__, __LINE__, TEST_SCANF_CODE(FORMAT, TYPE), TEST_SCANF_ERR_AKA(FORMAT, FORMATSTR, TYPE, AKATYPE_WIN32))
 
-// Macros for printf work just fine with scanf test functions.
-// TODO - invent better function names
 #define TEST_PRINTF_NOWARN(FORMAT, FORMATSTR, TYPE) \
-    testScanfNoWarn(__FILE__, __LINE__, TEST_PRINTF_CODE(FORMAT, TYPE))
+    testFormatStrNoWarn(__FILE__, __LINE__, TEST_PRINTF_CODE(FORMAT, TYPE))
 #define TEST_PRINTF_WARN(FORMAT, FORMATSTR, TYPE) \
-    testScanfWarn(__FILE__, __LINE__, TEST_PRINTF_CODE(FORMAT, TYPE), TEST_PRINTF_ERR(FORMAT, FORMATSTR, TYPE))
+    testFormatStrWarn(__FILE__, __LINE__, TEST_PRINTF_CODE(FORMAT, TYPE), TEST_PRINTF_ERR(FORMAT, FORMATSTR, TYPE))
 #define TEST_PRINTF_WARN_AKA(FORMAT, FORMATSTR, TYPE, AKATYPE, AKATYPE_WIN64) \
-    testScanfWarnAka(__FILE__, __LINE__, TEST_PRINTF_CODE(FORMAT, TYPE), TEST_PRINTF_ERR_AKA(FORMAT, FORMATSTR, TYPE, AKATYPE), TEST_PRINTF_ERR_AKA(FORMAT, FORMATSTR, TYPE, AKATYPE_WIN64))
+    testFormatStrWarnAka(__FILE__, __LINE__, TEST_PRINTF_CODE(FORMAT, TYPE), TEST_PRINTF_ERR_AKA(FORMAT, FORMATSTR, TYPE, AKATYPE), TEST_PRINTF_ERR_AKA(FORMAT, FORMATSTR, TYPE, AKATYPE_WIN64))
 #define TEST_PRINTF_WARN_AKA_WIN64(FORMAT, FORMATSTR, TYPE, AKATYPE_WIN64) \
-    testScanfWarnAkaWin64(__FILE__, __LINE__, TEST_PRINTF_CODE(FORMAT, TYPE), TEST_PRINTF_ERR_AKA(FORMAT, FORMATSTR, TYPE, AKATYPE_WIN64))
+    testFormatStrWarnAkaWin64(__FILE__, __LINE__, TEST_PRINTF_CODE(FORMAT, TYPE), TEST_PRINTF_ERR_AKA(FORMAT, FORMATSTR, TYPE, AKATYPE_WIN64))
 #define TEST_PRINTF_WARN_AKA_WIN32(FORMAT, FORMATSTR, TYPE, AKATYPE_WIN32) \
-    testScanfWarnAkaWin32(__FILE__, __LINE__, TEST_PRINTF_CODE(FORMAT, TYPE), TEST_PRINTF_ERR_AKA(FORMAT, FORMATSTR, TYPE, AKATYPE_WIN32))
+    testFormatStrWarnAkaWin32(__FILE__, __LINE__, TEST_PRINTF_CODE(FORMAT, TYPE), TEST_PRINTF_ERR_AKA(FORMAT, FORMATSTR, TYPE, AKATYPE_WIN32))
 
     void testScanfArgument() {
         check("void foo() {\n"
@@ -930,7 +928,7 @@ private:
               "    const int scanrc=sscanf(line, \"Project(\\\"{%36s}\\\")\", projectId);\n"
               "    sscanf(input, \"%5s\", output);\n"
               "}", true);
-        ASSERT_EQUALS("", errout.str());
+        ASSERT_EQUALS("[test.cpp:6]: (warning, inconclusive) Width 36 given in format string (no. 1) is smaller than destination buffer 'projectId[2048]'.\n", errout.str());
 
         check("void foo(unsigned int i) {\n"
               "  scanf(\"%h\", &i);\n"
@@ -1457,8 +1455,8 @@ private:
 
         TEST_SCANF_WARN("%jd", "intmax_t", "long double");
         TEST_SCANF_WARN("%jd", "intmax_t", "void *");
-        // TODO TEST_SCANF_WARN("%jd", "intmax_t", "size_t");
-        // TODO TEST_SCANF_WARN("%jd", "intmax_t", "unsigned ptrdiff_t");
+        TEST_SCANF_WARN_AKA("%jd", "intmax_t", "size_t", "unsigned long", "unsigned long long");
+        TEST_SCANF_WARN_AKA("%jd", "intmax_t", "unsigned ptrdiff_t", "unsigned long", "unsigned long long");
         TEST_SCANF_WARN_AKA("%jd", "intmax_t", "std::ssize_t", "signed long", "signed long long");
         TEST_SCANF_WARN_AKA("%jd", "intmax_t", "std::ptrdiff_t", "signed long", "signed long long");
         TEST_SCANF_NOWARN("%jd", "intmax_t", "intmax_t");
@@ -1825,7 +1823,7 @@ private:
 
         TEST_SCANF_WARN("%I32d", "__int32", "bool");
         TEST_SCANF_WARN("%I32d", "__int32", "void *");
-        //TODO TEST_SCANF_WARN_AKA("%I32d", "__int32", "size_t", "unsigned long", "unsigned long long");
+        TEST_SCANF_WARN_AKA("%I32d", "__int32", "size_t", "unsigned long", "unsigned long long");
         //TODO TEST_SCANF_WARN_AKA_WIN32("%I32d", "__int32", "ssize_t", "signed long", "signed long long");
         TEST_SCANF_WARN_AKA("%I32d", "__int32", "ptrdiff_t", "signed long", "signed long long");
         TEST_SCANF_NOWARN("%I32d", "__int32", "__int32");
@@ -2061,7 +2059,7 @@ private:
               "    scanf(\"%lf\",&v4[0]);\n"
               "    myvector<char *> v5(1);\n"
               "    scanf(\"%10s\",v5[0]);\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("", errout.str());
 
         {
@@ -2091,7 +2089,7 @@ private:
             check("void g() {\n"
                   "    const char c[]=\"42\";\n"
                   "    scanf(\"%s\", c);\n"
-                  "}\n");
+                  "}");
             ASSERT_EQUALS("[test.cpp:3]: (warning) %s in format string (no. 1) requires a 'char *' but the argument type is 'const char *'.\n"
                           "[test.cpp:3]: (warning) scanf() without field width limits can crash with huge input data.\n", errout.str());
         }
@@ -2761,7 +2759,7 @@ private:
         check("void f(int len, int newline) {\n"
               "    printf(\"%s\", newline ? a : str + len);\n"
               "    printf(\"%s\", newline + newline);\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("[test.cpp:3]: (warning) %s in format string (no. 1) requires 'char *' but the argument type is 'signed int'.\n", errout.str());
 
         check("struct Fred { int i; } f;\n"
@@ -2831,27 +2829,27 @@ private:
         // #4984
         check("void f(double *x) {\n"
               "    printf(\"%f\", x[0]);\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("", errout.str());
 
         check("int array[10];\n"
               "int * foo() { return array; }\n"
               "void f() {\n"
               "    printf(\"%f\", foo()[0]);\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("[test.cpp:4]: (warning) %f in format string (no. 1) requires 'double' but the argument type is 'signed int'.\n", errout.str());
 
         check("struct Base { int length() { } };\n"
               "struct Derived : public Base { };\n"
               "void foo(Derived * d) {\n"
               "    printf(\"%f\", d.length());\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("[test.cpp:4]: (warning) %f in format string (no. 1) requires 'double' but the argument type is 'signed int'.\n", errout.str());
 
         check("std::vector<int> v;\n"
               "void foo() {\n"
               "    printf(\"%d %u %f\", v[0], v[0], v[0]);\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("[test.cpp:3]: (warning) %u in format string (no. 2) requires 'unsigned int' but the argument type is 'signed int'.\n"
                       "[test.cpp:3]: (warning) %f in format string (no. 3) requires 'double' but the argument type is 'signed int'.\n", errout.str());
 
@@ -2859,7 +2857,7 @@ private:
         check("int bar(int a);\n"
               "void foo() {\n"
               "    printf(\"%d\", bar(0));\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("", errout.str());
 
         check("std::vector<int> v;\n"
@@ -3105,20 +3103,20 @@ private:
 
         check("void foo() {\n"
               "    printf(\"%f %d\", static_cast<int>(1.0f), reinterpret_cast<const void *>(0));\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("[test.cpp:2]: (warning) %f in format string (no. 1) requires 'double' but the argument type is 'signed int'.\n"
                       "[test.cpp:2]: (warning) %d in format string (no. 2) requires 'int' but the argument type is 'const void *'.\n", errout.str());
 
         check("void foo() {\n"
               "    UNKNOWN * u;\n"
               "    printf(\"%d %x %u %f\", u[i], u[i], u[i], u[i]);\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("", errout.str());
 
         check("void foo() {\n"
               "    long * l;\n"
               "    printf(\"%d %x %u %f\", l[i], l[i], l[i], l[i]);\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("[test.cpp:3]: (warning) %d in format string (no. 1) requires 'int' but the argument type is 'signed long'.\n"
                       "[test.cpp:3]: (warning) %x in format string (no. 2) requires 'unsigned int' but the argument type is 'signed long'.\n"
                       "[test.cpp:3]: (warning) %u in format string (no. 3) requires 'unsigned int' but the argument type is 'signed long'.\n"
@@ -3139,27 +3137,27 @@ private:
               "    printf(\"%u\",v6[0]);\n"
               "    myvector<char *> v7(1,0);\n"
               "    printf(\"%s\",v7[0]);\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("", errout.str());
 
         check("std::vector<char> v;\n" // #5151
               "void foo() {\n"
               "   printf(\"%c %u %f\", v.at(32), v.at(32), v.at(32));\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("[test.cpp:3]: (warning) %u in format string (no. 2) requires 'unsigned int' but the argument type is 'char'.\n"
                       "[test.cpp:3]: (warning) %f in format string (no. 3) requires 'double' but the argument type is 'char'.\n", errout.str());
 
         // #5195 (segmentation fault)
         check("void T::a(const std::vector<double>& vx) {\n"
               "    printf(\"%f\", vx.at(0));\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("", errout.str());
 
         // #5486
         check("void foo() {\n"
               "    ssize_t test = 0;\n"
               "    printf(\"%zd\", test);\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("", errout.str());
 
         // #6009
@@ -3167,7 +3165,7 @@ private:
               "extern int         IntByReturnValue();\n"
               "void MyFunction() {\n"
               "    printf( \"%s - %s\", StringByReturnValue(), IntByReturnValue() );\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("[test.cpp:4]: (warning) %s in format string (no. 1) requires 'char *' but the argument type is 'std::string'.\n"
                       "[test.cpp:4]: (warning) %s in format string (no. 2) requires 'char *' but the argument type is 'signed int'.\n", errout.str());
 
@@ -3180,7 +3178,7 @@ private:
               "    Array<int, 10> array1;\n"
               "    Array<float, 10> array2;\n"
               "    printf(\"%u %u\", array1[0], array2[0]);\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("[test.cpp:9]: (warning) %u in format string (no. 1) requires 'unsigned int' but the argument type is 'int'.\n"
                       "[test.cpp:9]: (warning) %u in format string (no. 2) requires 'unsigned int' but the argument type is 'float'.\n", errout.str());
 
@@ -4142,6 +4140,43 @@ private:
         ASSERT_EQUALS("[test.cpp:2]: (warning) %d in format string (no. 1) requires 'int' but the argument type is 'const void *'.\n"
                       "[test.cpp:2]: (warning) %d in format string (no. 2) requires 'int' but the argument type is 'const void *'.\n", errout.str());
 
+        check("void foo() {\n"
+              "    SSIZE_T s = -2;\n" // In MSVC, SSIZE_T is available in capital letters using #include <BaseTsd.h>
+              "    int i;\n"
+              "    printf(\"%zd\", s);\n"
+              "    printf(\"%zd%i\", s, i);\n"
+              "    printf(\"%zu\", s);\n"
+              "}", false, true, Settings::Win32A);
+        ASSERT_EQUALS("[test.cpp:6]: (portability) %zu in format string (no. 1) requires 'size_t' but the argument type is 'SSIZE_T {aka signed long}'.\n", errout.str());
+
+        check("void foo() {\n"
+              "    SSIZE_T s = -2;\n" // In MSVC, SSIZE_T is available in capital letters using #include <BaseTsd.h>
+              "    int i;\n"
+              "    printf(\"%zd\", s);\n"
+              "    printf(\"%zd%i\", s, i);\n"
+              "    printf(\"%zu\", s);\n"
+              "}", false, true, Settings::Win64);
+        ASSERT_EQUALS("[test.cpp:6]: (portability) %zu in format string (no. 1) requires 'size_t' but the argument type is 'SSIZE_T {aka signed long long}'.\n", errout.str());
+
+        check("void foo() {\n"
+              "    SSIZE_T s = -2;\n" // Under Unix, ssize_t has to be written in small letters. Not Cppcheck, but the compiler will report this.
+              "    int i;\n"
+              "    printf(\"%zd\", s);\n"
+              "    printf(\"%zd%i\", s, i);\n"
+              "    printf(\"%zu\", s);\n"
+              "}", false, true, Settings::Unix64);
+        ASSERT_EQUALS("", errout.str());
+
+        check("void foo() {\n"
+              "    typedef SSIZE_T ssize_t;\n" // Test using typedef
+              "    ssize_t s = -2;\n"
+              "    int i;\n"
+              "    printf(\"%zd\", s);\n"
+              "    printf(\"%zd%i\", s, i);\n"
+              "    printf(\"%zu\", s);\n"
+              "}", false, true, Settings::Win64);
+        ASSERT_EQUALS("[test.cpp:7]: (portability) %zu in format string (no. 1) requires 'size_t' but the argument type is 'SSIZE_T {aka signed long long}'.\n", errout.str());
+
     }
 
     void testMicrosoftScanfArgument() {
@@ -4225,6 +4260,44 @@ private:
                       "[test.cpp:15]: (warning) 'I' in format string (no. 1) is a length modifier and cannot be used without a conversion specifier.\n"
                       "[test.cpp:16]: (warning) 'I32' in format string (no. 1) is a length modifier and cannot be used without a conversion specifier.\n"
                       "[test.cpp:17]: (warning) 'I64' in format string (no. 1) is a length modifier and cannot be used without a conversion specifier.\n", errout.str());
+
+        check("void foo() {\n"
+              "    SSIZE_T s;\n" // In MSVC, SSIZE_T is available in capital letters using #include <BaseTsd.h>
+              "    int i;\n"
+              "    scanf(\"%zd\", &s);\n"
+              "    scanf(\"%zd%i\", &s, &i);\n"
+              "    scanf(\"%zu\", &s);\n"
+              "}", false, true, Settings::Win32A);
+        ASSERT_EQUALS("[test.cpp:6]: (portability) %zu in format string (no. 1) requires 'size_t *' but the argument type is 'SSIZE_T * {aka signed long *}'.\n", errout.str());
+
+        check("void foo() {\n"
+              "    SSIZE_T s;\n" // In MSVC, SSIZE_T is available in capital letters using #include <BaseTsd.h>
+              "    int i;\n"
+              "    scanf(\"%zd\", &s);\n"
+              "    scanf(\"%zd%i\", &s, &i);\n"
+              "    scanf(\"%zu\", &s);\n"
+              "}", false, true, Settings::Win64);
+        ASSERT_EQUALS("[test.cpp:6]: (portability) %zu in format string (no. 1) requires 'size_t *' but the argument type is 'SSIZE_T * {aka signed long long *}'.\n", errout.str());
+
+        check("void foo() {\n"
+              "    SSIZE_T s;\n" // Under Unix, ssize_t has to be written in small letters. Not Cppcheck, but the compiler will report this.
+              "    int i;\n"
+              "    scanf(\"%zd\", &s);\n"
+              "    scanf(\"%zd%i\", &s, &i);\n"
+              "    scanf(\"%zu\", &s);\n"
+              "}", false, true, Settings::Unix64);
+        ASSERT_EQUALS("", errout.str());
+
+        check("void foo() {\n"
+              "    typedef SSIZE_T ssize_t;\n" // Test using typedef
+              "    ssize_t s;\n"
+              "    int i;\n"
+              "    scanf(\"%zd\", &s);\n"
+              "    scanf(\"%zd%i\", &s, &i);\n"
+              "    scanf(\"%zu\", &s);\n"
+              "}", false, true, Settings::Win64);
+        ASSERT_EQUALS("[test.cpp:7]: (portability) %zu in format string (no. 1) requires 'size_t *' but the argument type is 'SSIZE_T * {aka signed long long *}'.\n", errout.str());
+
     }
 
     void testMicrosoftCStringFormatArguments() { // ticket #4920
@@ -4454,7 +4527,7 @@ private:
               "    sprintf_s(lineBuffer, 100, format1, \"type\", \"sum\", \"avg\", \"min\", i, 0);\n"
               "    sprintf_s(lineBuffer, 100, format2, \"type\", \"sum\", \"avg\", \"min\", i, 0);\n"
               "    sprintf_s(lineBuffer, 100, format3, \"type\", \"sum\", \"avg\", \"min\", i, 0);\n"
-              "}\n", false, false, Settings::Win32A);
+              "}\n", true, false, Settings::Win32A);
         ASSERT_EQUALS("[test.cpp:6]: (warning) %s in format string (no. 5) requires 'char *' but the argument type is 'signed int'.\n"
                       "[test.cpp:6]: (warning) sprintf_s format string requires 5 parameters but 6 are given.\n"
                       "[test.cpp:7]: (warning) %s in format string (no. 5) requires 'char *' but the argument type is 'signed int'.\n"
@@ -4638,7 +4711,7 @@ private:
     void testTernary() {  // ticket #6182
         check("void test(const std::string &val) {\n"
               "    printf(\"%s\", val.empty() ? \"I like to eat bananas\" : val.c_str());\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("", errout.str());
     }
 
@@ -4646,30 +4719,30 @@ private:
         check("void test() {\n"
               "    unsigned const x = 5;\n"
               "    printf(\"%u\", x);\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("", errout.str());
     }
 
     void testAstType() { // ticket #7014
         check("void test() {\n"
               "    printf(\"%c\", \"hello\"[0]);\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("", errout.str());
 
         check("void test() {\n"
               "    printf(\"%lld\", (long long)1);\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("", errout.str());
 
         check("void test() {\n"
               "    printf(\"%i\", (short *)x);\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("[test.cpp:2]: (warning) %i in format string (no. 1) requires 'int' but the argument type is 'signed short *'.\n", errout.str());
 
         check("int (*fp)();\n" // #7178 - function pointer call
               "void test() {\n"
               "    printf(\"%i\", fp());\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("", errout.str());
     }
 
@@ -4677,7 +4750,7 @@ private:
         check("void foo() {\n"
               "    printf(\"%u %lu %llu\", 0U, 0UL, 0ULL);\n"
               "    printf(\"%u %lu %llu\", 0u, 0ul, 0ull);\n"
-              "}\n");
+              "}");
         ASSERT_EQUALS("", errout.str());
     }
 
@@ -4728,6 +4801,23 @@ private:
               "    printf(\"%f\", s);\n"
               "}\n", false, true);
         ASSERT_EQUALS("[test.cpp:4]: (portability) %f in format string (no. 1) requires 'double' but the argument type is 'size_t {aka unsigned long}'.\n", errout.str());
+    }
+
+    void testPrintfParenthesis() { // #8489
+        check("void f(int a) {\n"
+              "    printf(\"%f\", (a >> 24) & 0xff);\n"
+              "}");
+        ASSERT_EQUALS("[test.cpp:2]: (warning) %f in format string (no. 1) requires 'double' but the argument type is 'signed int'.\n", errout.str());
+
+        check("void f(int a) {\n"
+              "    printf(\"%f\", 0xff & (a >> 24));\n"
+              "}");
+        ASSERT_EQUALS("[test.cpp:2]: (warning) %f in format string (no. 1) requires 'double' but the argument type is 'signed int'.\n", errout.str());
+
+        check("void f(int a) {\n"
+              "    printf(\"%f\", ((a >> 24) + 1) & 0xff);\n"
+              "}");
+        ASSERT_EQUALS("[test.cpp:2]: (warning) %f in format string (no. 1) requires 'double' but the argument type is 'signed int'.\n", errout.str());
     }
 };
 

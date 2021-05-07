@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2019 Cppcheck team.
+ * Copyright (C) 2007-2021 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,15 +20,10 @@
 #include "pathmatch.h"
 #include "testsuite.h"
 
-#include <cstddef>
 #include <fstream>
 #include <map>
 #include <string>
-#include <utility>
-
-#ifndef _WIN32
 #include <vector>
-#endif
 
 class TestFileLister: public TestFixture {
 public:
@@ -47,6 +42,7 @@ private:
 
         TEST_CASE(isDirectory);
         TEST_CASE(recursiveAddFiles);
+        TEST_CASE(fileExists);
     }
 
     void isDirectory() const {
@@ -59,7 +55,8 @@ private:
         std::map<std::string, std::size_t> files;
         std::vector<std::string> masks;
         PathMatch matcher(masks);
-        FileLister::recursiveAddFiles(files, ".", matcher);
+        std::string err = FileLister::recursiveAddFiles(files, ".", matcher);
+        ASSERT(err.empty());
 
         // In case there are leading "./"..
         for (std::map<std::string, std::size_t>::iterator i = files.begin(); i != files.end();) {
@@ -78,6 +75,11 @@ private:
 
         // Make sure headers are not added..
         ASSERT(files.find("lib/tokenize.h") == files.end());
+    }
+
+    void fileExists() const {
+        ASSERT_EQUALS(false, FileLister::fileExists("lib"));
+        ASSERT_EQUALS(true, FileLister::fileExists("readme.txt"));
     }
 };
 

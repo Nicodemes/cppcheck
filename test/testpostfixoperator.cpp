@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2019 Cppcheck team.
+ * Copyright (C) 2007-2021 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -47,13 +47,14 @@ private:
     }
 
     void run() OVERRIDE {
-        settings.addEnabled("performance");
+        settings.severity.enable(Severity::performance);
 
         TEST_CASE(testsimple);
         TEST_CASE(testfor);
         TEST_CASE(testvolatile);
         TEST_CASE(testiterator);
         TEST_CASE(test2168);
+        TEST_CASE(pointerSimplest);
         TEST_CASE(pointer);   // #2321 - postincrement of pointer is OK
         TEST_CASE(testtemplate); // #4686
         TEST_CASE(testmember);
@@ -314,10 +315,21 @@ private:
         ASSERT_EQUALS("", errout.str());
     }
 
+    void pointerSimplest() {
+        check("void f(int* p){\n"
+              "    p++;\n"
+              "    std::cout << *p;\n"
+              "}");
+        ASSERT_EQUALS("", errout.str());
+    }
+
     void pointer() {
         check("static struct class * ab;\n"
               "int * p;\n"
-              "p++;\n");
+              "\n"
+              "void f() {\n"
+              "    p++;\n"
+              "}");
         ASSERT_EQUALS("", errout.str());
     }
 

@@ -7,7 +7,9 @@
 // No warnings about bad library configuration, unmatched suppressions, etc. exitcode=0
 //
 
+#include <wx/wx.h>
 #include <wx/app.h>
+#include <wx/dc.h>
 #include <wx/log.h>
 #include <wx/filefn.h>
 #include <wx/spinctrl.h>
@@ -22,6 +24,97 @@
 #include <wx/menu.h>
 #include <wx/stattext.h>
 #include <wx/sizer.h>
+#include <wx/string.h>
+#include <wx/textctrl.h>
+#include <wx/propgrid/property.h>
+
+#ifdef __VISUALC__
+// Ensure no duplicateBreak warning is issued after wxLogApiError() calls.
+// This function does not terminate execution.
+bool duplicateBreak_wxLogApiError(const wxString &msg, const HRESULT &hr, wxString &str)
+{
+    if (hr) {
+        wxLogApiError(msg,hr);
+        str = "fail";
+        return false;
+    }
+    return true;
+}
+#endif
+
+void useRetval_wxString_MakeCapitalized(wxString &str)
+{
+    // No warning is expected for
+    str.MakeCapitalized();
+}
+
+void useRetval_wxString_MakeLower(wxString &str)
+{
+    // No warning is expected for
+    str.MakeLower();
+}
+
+void useRetval_wxString_MakeUpper(wxString &str)
+{
+    // No warning is expected for
+    str.MakeUpper();
+}
+
+wxString containerOutOfBounds_wxArrayString(void)
+{
+    wxArrayString a;
+    a.Add("42");
+    a.Clear();
+    // TODO: wxArrayString is defined to be a vector
+    // TODO: cppcheck-suppress containerOutOfBounds
+    return a[0];
+}
+
+int containerOutOfBounds_wxArrayInt(void)
+{
+    wxArrayInt a;
+    a.Add(42);
+    a.Clear();
+    // TODO: wxArrayString is defined to be a vector
+    // TODO: cppcheck-suppress containerOutOfBounds
+    return a[0];
+}
+
+void ignoredReturnValue_wxDC_GetSize(const wxDC &dc, wxCoord *width, wxCoord *height)
+{
+    // No warning is expected for
+    dc.GetSize(width, height);
+    // No warning is expected for
+    (void)dc.GetSize();
+}
+
+void ignoredReturnValue_wxDC_GetSizeMM(const wxDC &dc, wxCoord *width, wxCoord *height)
+{
+    // No warning is expected for
+    dc.GetSizeMM(width, height);
+    // Now warning is expected for
+    (void)dc.GetSizeMM();
+}
+
+wxSizerItem* invalidFunctionArgBool_wxSizer_Add(wxSizer *sizer, wxWindow * window, const wxSizerFlags &flags)
+{
+    // No warning is expected for
+    return sizer->Add(window,flags);
+}
+
+bool invalidFunctionArgBool_wxPGProperty_Hide(wxPGProperty *pg, bool hide, int flags)
+{
+    // cppcheck-suppress invalidFunctionArgBool
+    (void)pg->Hide(hide, true);
+    // No warning is expected for
+    return pg->Hide(hide, flags);
+}
+
+wxTextCtrlHitTestResult nullPointer_wxTextCtrl_HitTest(const wxTextCtrl& txtCtrl, const wxPoint& pos)
+{
+    // no nullPointer-warning is expected
+    return txtCtrl.HitTest(pos, NULL);
+}
 
 void validCode()
 {
@@ -158,9 +251,9 @@ void uninitvar_wxStaticText(wxStaticText &s)
 {
     // no warning
     s.Wrap(-1);
-    bool uninitBool;
+    int uninitInt;
     // cppcheck-suppress uninitvar
-    s.Wrap(uninitBool);
+    s.Wrap(uninitInt);
 }
 
 void uninitvar_wxString_NumberConversion(const wxString &str, const int numberBase)
@@ -276,4 +369,38 @@ void deprecatedFunctions(wxApp &a,
     // cppcheck-suppress EnableYearChangeCalled
     calenderCtrl.EnableYearChange(/*default=yes*/);
 #endif
+}
+
+void wxString_test1(wxString s)
+{
+    for (int i = 0; i <= s.size(); ++i) {
+        // cppcheck-suppress stlOutOfBounds
+        s[i] = 'x';
+    }
+}
+
+void wxString_test2()
+{
+    wxString s;
+    // cppcheck-suppress containerOutOfBounds
+    s[1] = 'a';
+    s.append("abc");
+    s[1] = 'B';
+    printf("%s", static_cast<const char*>(s.c_str()));
+    wxPrintf("%s", s);
+    wxPrintf("%s", s.c_str());
+    s.Clear();
+}
+
+wxString::iterator wxString_test3()
+{
+    wxString wxString1;
+    wxString wxString2;
+    // cppcheck-suppress mismatchingContainers
+    for (wxString::iterator it = wxString1.begin(); it != wxString2.end(); ++it)
+    {}
+
+    wxString::iterator it = wxString1.begin();
+    // cppcheck-suppress returnDanglingLifetime
+    return it;
 }

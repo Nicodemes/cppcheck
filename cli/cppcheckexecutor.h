@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2019 Cppcheck team.
+ * Copyright (C) 2007-2021 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -48,7 +48,7 @@ public:
     /**
      * Destructor
      */
-    virtual ~CppCheckExecutor();
+    ~CppCheckExecutor() OVERRIDE;
 
     /**
      * Starts the checking.
@@ -69,17 +69,19 @@ public:
      *
      * @param outmsg Progress message e.g. "Checking main.cpp..."
      */
-    virtual void reportOut(const std::string &outmsg) OVERRIDE;
+    void reportOut(const std::string &outmsg) OVERRIDE;
 
     /** xml output of errors */
-    virtual void reportErr(const ErrorLogger::ErrorMessage &msg) OVERRIDE;
+    void reportErr(const ErrorMessage &msg) OVERRIDE;
 
     void reportProgress(const std::string &filename, const char stage[], const std::size_t value) OVERRIDE;
 
     /**
      * Output information messages.
      */
-    virtual void reportInfo(const ErrorLogger::ErrorMessage &msg) OVERRIDE;
+    void reportInfo(const ErrorMessage &msg) OVERRIDE;
+
+    void bughuntingReport(const std::string &str) OVERRIDE;
 
     /**
      * Information about how many files have been checked
@@ -92,9 +94,9 @@ public:
     static void reportStatus(std::size_t fileindex, std::size_t filecount, std::size_t sizedone, std::size_t sizetotal);
 
     /**
-     * @param exception_output Output file
+     * @param exceptionOutput Output file
      */
-    static void setExceptionOutput(FILE* exception_output);
+    static void setExceptionOutput(FILE* exceptionOutput);
     /**
     * @return file name to be used for output from exception handler. Has to be either "stdout" or "stderr".
     */
@@ -105,6 +107,11 @@ public:
     * @return false, if an error occurred (except unknown XML elements)
     */
     static bool tryLoadLibrary(Library& destination, const char* basepath, const char* filename);
+
+    /**
+     * Execute a shell command and read the output from it. Returns true if command terminated successfully.
+     */
+    static bool executeCommand(std::string exe, std::vector<std::string> args, const std::string &redirect, std::string *output);
 
 protected:
 
@@ -160,37 +167,42 @@ private:
     /**
      * Pointer to current settings; set while check() is running.
      */
-    const Settings* _settings;
+    const Settings* mSettings;
 
     /**
      * Used to filter out duplicate error messages.
      */
-    std::set<std::string> _errorList;
+    std::set<std::string> mShownErrors;
 
     /**
      * Filename associated with size of file
      */
-    std::map<std::string, std::size_t> _files;
+    std::map<std::string, std::size_t> mFiles;
 
     /**
      * Report progress time
      */
-    std::time_t latestProgressOutputTime;
+    std::time_t mLatestProgressOutputTime;
 
     /**
      * Output file name for exception handler
      */
-    static FILE* exceptionOutput;
+    static FILE* mExceptionOutput;
 
     /**
      * Error output
      */
-    std::ofstream *errorOutput;
+    std::ofstream *mErrorOutput;
+
+    /**
+     * Bug hunting report
+     */
+    std::ostream *mBugHuntingReport;
 
     /**
      * Has --errorlist been given?
      */
-    bool errorlist;
+    bool mShowAllErrors;
 };
 
 #endif // CPPCHECKEXECUTOR_H

@@ -1,6 +1,6 @@
 ﻿/*
 * Cppcheck - A tool for static C/C++ code analysis
-* Copyright (C) 2007-2019 Cppcheck team.
+* Copyright (C) 2007-2020 Cppcheck team.
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -16,22 +16,20 @@
 * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include "config.h"
 #include "cppcheckexecutor.h"
 #include "errorlogger.h"
-#include "cppcheck.h"
 #include "filelister.h"
 #include "path.h"
 #include "pathmatch.h"
 #include "redirect.h"
+#include "settings.h"
 #include "testsuite.h"
 
 #include <algorithm>
-#include <cstddef>
-#include <cstring>
 #include <fstream>
 #include <iterator>
 #include <map>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -55,17 +53,18 @@ private:
         std::map<std::string, std::size_t> files;
         const std::vector<std::string> masks;
         const PathMatch matcher(masks);
+        std::string err =
 #ifdef _WIN32
-        FileLister::recursiveAddFiles(files, "..\\samples", matcher);
+            FileLister::recursiveAddFiles(files, "..\\samples", matcher);
 #else
-        FileLister::recursiveAddFiles(files, "samples", matcher);
+            FileLister::recursiveAddFiles(files, "samples", matcher);
 #endif
+        ASSERT(err.empty());
         for (std::map<std::string, std::size_t>::const_iterator i = files.begin(); i != files.end(); ++i) {
             if (i->first.find("memleak") != std::string::npos)
                 continue;
             CLEAR_REDIRECT_ERROUT;
-            char* path = new char[i->first.size() + 1];
-            strcpy(path, i->first.c_str());
+            const char* const path = i->first.c_str();
             const char * const argv[] = {
 #ifdef _WIN32
                 ".\\..\\testrunner",
@@ -84,6 +83,7 @@ private:
                 exec.check(7, argv);
                 std::string expected_filename = Path::getPathFromFilename(i->first) + "out.txt";
                 std::ifstream ifs(expected_filename);
+                // TODO: this contains stray \n at the start of each line when the out.txt files have CRLF
                 std::string expected((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
                 std::string actual = GET_REDIRECT_ERROUT;
                 // We need some uniformization to make this work on Unix and Windows
@@ -92,7 +92,6 @@ private:
                     actual.erase(actual.find("..\\"), 3); // Remove '..\'
                 ASSERT_EQUALS_MSG(expected, actual, i->first);
             }
-            delete[] path;
         }
     }
 
@@ -132,7 +131,7 @@ private:
 
             exec.reportOut(*i);
 
-            ErrorLogger::ErrorMessage errMessage;
+            ErrorMessage errMessage;
             errMessage.setmsg(*i);
 
             // no xml option
@@ -155,9 +154,9 @@ private:
 
             CLEAR_REDIRECT_ERROUT;
             // possible change of msg for xml option
-            // with ErrorLogger::ErrorMessage::fixInvalidChars(), plus additional XML formatting
+            // with ErrorMessage::fixInvalidChars(), plus additional XML formatting
             execXML.reportInfo(errMessage);
-            // undo the effects of "ErrorLogger::ErrorMessage::fixInvalidChars()"
+            // undo the effects of "ErrorMessage::fixInvalidChars()"
             // replacing octal constants with characters
             std::string myErr;
             std::string myErrOrg = GET_REDIRECT_ERROUT;

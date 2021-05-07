@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2019 Cppcheck team.
+ * Copyright (C) 2007-2021 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,8 +32,8 @@ private:
     Settings settings;
 
     void run() OVERRIDE {
-        settings.addEnabled("warning");
-        settings.addEnabled("style");
+        settings.severity.enable(Severity::warning);
+        settings.severity.enable(Severity::style);
 
         TEST_CASE(stringLiteralWrite);
 
@@ -51,6 +51,9 @@ private:
         TEST_CASE(sprintf2);
         TEST_CASE(sprintf3);
         TEST_CASE(sprintf4);        // struct member
+        TEST_CASE(sprintf5);        // another struct member
+        TEST_CASE(sprintf6);        // (char*)
+        TEST_CASE(sprintf7);        // (char*)(void*)
         TEST_CASE(wsprintf1);       // Dangerous usage of wsprintf
 
         TEST_CASE(incorrectStringCompare);
@@ -86,6 +89,12 @@ private:
         ASSERT_EQUALS("[test.cpp:3] -> [test.cpp:2]: (error) Modifying string literal \"abc\" directly or indirectly is undefined behaviour.\n", errout.str());
 
         check("void f() {\n"
+              "  char *abc = \"A very long string literal\";\n"
+              "  abc[0] = 'a';\n"
+              "}");
+        ASSERT_EQUALS("[test.cpp:3] -> [test.cpp:2]: (error) Modifying string literal \"A very long stri..\" directly or indirectly is undefined behaviour.\n", errout.str());
+
+        check("void f() {\n"
               "  QString abc = \"abc\";\n"
               "  abc[0] = 'a';\n"
               "}");
@@ -98,7 +107,9 @@ private:
               "  char* s = \"Y\";\n"
               "  foo_FP1(s);\n"
               "}");
-        TODO_ASSERT_EQUALS("[test.cpp:2] -> [test.cpp:5]: (error) Modifying string literal \"Y\" directly or indirectly is undefined behaviour.\n", "", errout.str());
+        ASSERT_EQUALS(
+            "[test.cpp:2] -> [test.cpp:5]: (error) Modifying string literal \"Y\" directly or indirectly is undefined behaviour.\n",
+            errout.str());
 
         check("void foo_FP1(char *p) {\n"
               "  p[1] = 'B';\n"
@@ -113,13 +124,13 @@ private:
               "  wchar_t *abc = L\"abc\";\n"
               "  abc[0] = u'a';\n"
               "}");
-        ASSERT_EQUALS("[test.cpp:3] -> [test.cpp:2]: (error) Modifying string literal \"abc\" directly or indirectly is undefined behaviour.\n", errout.str());
+        ASSERT_EQUALS("[test.cpp:3] -> [test.cpp:2]: (error) Modifying string literal L\"abc\" directly or indirectly is undefined behaviour.\n", errout.str());
 
         check("void f() {\n"
               "  char16_t *abc = u\"abc\";\n"
               "  abc[0] = 'a';\n"
               "}");
-        ASSERT_EQUALS("[test.cpp:3] -> [test.cpp:2]: (error) Modifying string literal \"abc\" directly or indirectly is undefined behaviour.\n", errout.str());
+        ASSERT_EQUALS("[test.cpp:3] -> [test.cpp:2]: (error) Modifying string literal u\"abc\" directly or indirectly is undefined behaviour.\n", errout.str());
     }
 
     void alwaysTrueFalseStringCompare() {
@@ -278,6 +289,11 @@ private:
               "}");
         ASSERT_EQUALS("[test.cpp:2]: (warning) String literal compared with variable 'c'. Did you intend to use strcmp() instead?\n", errout.str());
 
+        check("bool foo(char** c) {\n"
+              "    return c[3] == \"x\";\n"
+              "}");
+        ASSERT_EQUALS("[test.cpp:2]: (warning) String literal compared with variable 'c[3]'. Did you intend to use strcmp() instead?\n", errout.str());
+
         check("bool foo(wchar_t* c) {\n"
               "    return c == L\"x\";\n"
               "}");
@@ -301,7 +317,7 @@ private:
         check("bool foo(char* c) {\n"
               "    return \"x\" == c+foo;\n"
               "}", "test.c");
-        ASSERT_EQUALS("[test.c:2]: (warning) String literal compared with variable 'c'. Did you intend to use strcmp() instead?\n", errout.str());
+        ASSERT_EQUALS("[test.c:2]: (warning) String literal compared with variable 'c+foo'. Did you intend to use strcmp() instead?\n", errout.str());
 
         check("bool foo(Foo c) {\n"
               "    return \"x\" == c.foo;\n"
@@ -338,18 +354,14 @@ private:
         // Ticket #4257
         check("bool foo() {\n"
               "MyString **str=OtherGetter();\n"
-              "return *str==\"bug\"; }");
-        TODO_ASSERT_EQUALS("[test.cpp:2]: (warning) String literal compared with variable 'c'. Did you intend to use strcmp() instead?\n",
-                           "",
-                           errout.str());
+              "return *str==\"bug\"; }", "test.c");
+        ASSERT_EQUALS("[test.c:3]: (warning) String literal compared with variable '*str'. Did you intend to use strcmp() instead?\n", errout.str());
 
         // Ticket #4257
         check("bool foo() {\n"
               "MyString str=OtherGetter2();\n"
-              "return &str==\"bug\"; }");
-        TODO_ASSERT_EQUALS("[test.cpp:2]: (warning) String literal compared with variable 'c'. Did you intend to use strcmp() instead?\n",
-                           "",
-                           errout.str());
+              "return &str==\"bug\"; }", "test.c");
+        ASSERT_EQUALS("[test.c:3]: (warning) String literal compared with variable '&str'. Did you intend to use strcmp() instead?\n", errout.str());
 
         // Ticket #5734
         check("int foo(char c) {\n"
@@ -382,6 +394,13 @@ private:
               "   if (example.buffer == \"test\") ;\n"
               "}\n", "test.c");
         ASSERT_EQUALS("[test.c:6]: (warning) String literal compared with variable 'example.buffer'. Did you intend to use strcmp() instead?\n", errout.str());
+
+        // #9726
+        check("void f(std::vector<std::string> theArgs) {\n"
+              "   std::string arg1(*theArgs.begin());\n"
+              "   if(arg1 == \"aaa\") {}\n"
+              "}");
+        ASSERT_EQUALS("", errout.str());
     }
 
     void suspiciousStringCompare_char() {
@@ -404,6 +423,21 @@ private:
               "    return c == '\\0';\n"
               "}");
         ASSERT_EQUALS("", errout.str());
+
+        check("bool foo(char* c) {\n"
+              "    return c[0] == '\\0';\n"
+              "}");
+        ASSERT_EQUALS("", errout.str());
+
+        check("bool foo(char** c) {\n"
+              "    return c[0] == '\\0';\n"
+              "}");
+        ASSERT_EQUALS("[test.cpp:2]: (warning) Char literal compared with pointer 'c[0]'. Did you intend to dereference it?\n", errout.str());
+
+        check("bool foo(char** c) {\n"
+              "    return *c == '\\0';\n"
+              "}");
+        ASSERT_EQUALS("[test.cpp:2]: (warning) Char literal compared with pointer '*c'. Did you intend to dereference it?\n", errout.str());
 
         check("bool foo(char c) {\n"
               "    return c == 0;\n"
@@ -496,6 +530,37 @@ private:
         ASSERT_EQUALS("", errout.str());
     }
 
+    void sprintf5() {
+        check("struct A\n"
+              "{\n"
+              "    char filename[128];\n"
+              "};\n"
+              "\n"
+              "void foo(struct A *a)\n"
+              "{\n"
+              "    snprintf(a->filename, 128, \"%s\", a->filename);\n"
+              "}");
+        ASSERT_EQUALS("[test.cpp:8]: (error) Undefined behavior: Variable 'a->filename' is used as parameter and destination in snprintf().\n", errout.str());
+    }
+
+    void sprintf6() {
+        check("void foo()\n"
+              "{\n"
+              "    char buf[100];\n"
+              "    sprintf((char*)buf,\"%s\",(char*)buf);\n"
+              "}");
+        ASSERT_EQUALS("[test.cpp:4]: (error) Undefined behavior: Variable 'buf' is used as parameter and destination in sprintf().\n", errout.str());
+    }
+
+    void sprintf7() {
+        check("void foo()\n"
+              "{\n"
+              "    char buf[100];\n"
+              "    sprintf((char*)(void*)buf,\"%s\",(void*)(char*)buf);\n"
+              "}");
+        ASSERT_EQUALS("[test.cpp:4]: (error) Undefined behavior: Variable 'buf' is used as parameter and destination in sprintf().\n", errout.str());
+    }
+
     void wsprintf1() {
         check("void foo()\n"
               "{\n"
@@ -567,7 +632,7 @@ private:
         check("int f() {\n"
               "    return test.substr( 0 , 4 ) == L\"Hello\" ? 0 : 1 ;\n"
               "}");
-        ASSERT_EQUALS("[test.cpp:2]: (warning) String literal \"Hello\" doesn't match length argument for substr().\n", errout.str());
+        ASSERT_EQUALS("[test.cpp:2]: (warning) String literal L\"Hello\" doesn't match length argument for substr().\n", errout.str());
 
         check("int f() {\n"
               "    return test.substr( 0 , 5 ) == \"Hello\" ? 0 : 1 ;\n"
@@ -652,7 +717,7 @@ private:
               "  int x = 'd' ? 1 : 2;\n"
               "}");
         ASSERT_EQUALS("[test.cpp:2]: (warning) Conversion of char literal 'a' to bool always evaluates to true.\n"
-                      "[test.cpp:3]: (warning) Conversion of char literal 'b' to bool always evaluates to true.\n"
+                      "[test.cpp:3]: (warning) Conversion of char literal L'b' to bool always evaluates to true.\n"
                       "[test.cpp:4]: (warning) Conversion of char literal 'c' to bool always evaluates to true.\n"
                       "[test.cpp:5]: (warning) Conversion of char literal 'd' to bool always evaluates to true.\n"
                       , errout.str());
@@ -668,7 +733,7 @@ private:
               "  if(L'\\0' || cond){}\n"
               "}");
         ASSERT_EQUALS("[test.cpp:2]: (warning) Conversion of char literal '\\0' to bool always evaluates to false.\n"
-                      "[test.cpp:3]: (warning) Conversion of char literal '\\0' to bool always evaluates to false.\n", errout.str());
+                      "[test.cpp:3]: (warning) Conversion of char literal L'\\0' to bool always evaluates to false.\n", errout.str());
     }
 
     void deadStrcmp() {

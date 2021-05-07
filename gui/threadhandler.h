@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2018 Cppcheck team.
+ * Copyright (C) 2007-2020 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,13 +25,13 @@
 #include <QDateTime>
 #include <set>
 #include "threadresult.h"
-#include "importproject.h"
 #include "suppressions.h"
 
 class ResultsView;
 class CheckThread;
 class QSettings;
 class Settings;
+class ImportProject;
 
 /// @addtogroup GUI
 /// @{
@@ -44,7 +44,7 @@ class Settings;
 class ThreadHandler : public QObject {
     Q_OBJECT
 public:
-    explicit ThreadHandler(QObject *parent = 0);
+    explicit ThreadHandler(QObject *parent = nullptr);
     virtual ~ThreadHandler();
 
     /**
@@ -64,7 +64,7 @@ public:
     * @brief Load settings
     * @param settings QSettings to load settings from
     */
-    void loadSettings(QSettings &settings);
+    void loadSettings(const QSettings &settings);
 
     /**
     * @brief Save settings
@@ -72,9 +72,8 @@ public:
     */
     void saveSettings(QSettings &settings) const;
 
-    void setAddonsAndTools(const QStringList &addonsAndTools, const QString &misraFile) {
+    void setAddonsAndTools(const QStringList &addonsAndTools) {
         mAddonsAndTools = addonsAndTools;
-        mMisraFile = misraFile;
     }
 
     void setSuppressions(const QList<Suppressions::Suppression> &s) {
@@ -128,7 +127,7 @@ public:
     *
     * @param files list of files to be checked
     */
-    void setCheckFiles(QStringList files);
+    void setCheckFiles(const QStringList& files);
 
     /**
     * @brief Is checking running?
@@ -188,6 +187,8 @@ signals:
     void log(const QString &msg);
 
     void debugError(const ErrorItem &item);
+
+    void bughuntingReportLine(QString line);
 
 public slots:
 
@@ -260,7 +261,6 @@ protected:
     QStringList mClangIncludePaths;
 
     QString mDataDir;
-    QString mMisraFile;
 private:
 
     /**

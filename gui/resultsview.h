@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2018 Cppcheck team.
+ * Copyright (C) 2007-2020 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,7 +21,6 @@
 #define RESULTSVIEW_H
 
 
-#include <QWidget>
 #include "report.h"
 #include "showtypes.h"
 #include "ui_resultsview.h"
@@ -44,15 +43,14 @@ class ResultsView : public QWidget {
     Q_OBJECT
 public:
 
-    explicit ResultsView(QWidget * parent = 0);
+    explicit ResultsView(QWidget * parent = nullptr);
     void initialize(QSettings *settings, ApplicationList *list, ThreadHandler *checkThreadHandler);
     ResultsView(const ResultsView &) = delete;
     virtual ~ResultsView();
     ResultsView &operator=(const ResultsView &) = delete;
 
-    void setTags(const QStringList &tags) {
-        mUI.mTree->setTags(tags);
-    }
+    void setAddedFunctionContracts(const QStringList &addedContracts);
+    void setAddedVariableContracts(const QStringList &added);
 
     /**
      * @brief Clear results and statistics and reset progressinfo.
@@ -69,6 +67,9 @@ public:
      * @brief Remove a recheck file from the results.
      */
     void clearRecheckFile(const QString &filename);
+
+    /** Clear the contracts */
+    void clearContracts();
 
     /**
     * @brief Write statistics in file
@@ -108,6 +109,16 @@ public:
                         bool showInconclusive);
 
     /**
+     * @brief Update Code Editor Style
+     *
+     * Function will read updated Code Editor styling from
+     * stored program settings.
+     *
+     * @param settings Pointer to QSettings Object
+     */
+    void updateStyleSetting(QSettings *settings);
+
+    /**
     * @brief Set the directory we are checking
     *
     * This is used to split error file path to relative if necessary
@@ -121,7 +132,7 @@ public:
     * @return Directory containing source files
     */
 
-    QString getCheckDirectory(void);
+    QString getCheckDirectory();
 
     /**
     * @brief Inform the view that checking has started
@@ -188,6 +199,9 @@ public:
         return &mUI.mTree->mShowSeverities;
     }
 
+    /** Show/hide the contract tabs */
+    void showContracts(bool visible);
+
 signals:
 
     /**
@@ -210,13 +224,20 @@ signals:
     */
     void checkSelected(QStringList selectedFilesList);
 
-    /**
-     * Some results have been tagged
-     */
-    void tagged();
-
     /** Suppress Ids */
     void suppressIds(QStringList ids);
+
+    /** Edit contract for function */
+    void editFunctionContract(QString function);
+
+    /** Delete contract for function */
+    void deleteFunctionContract(QString function);
+
+    /** Edit contract for variable */
+    void editVariableContract(QString var);
+
+    /** Delete variable contract */
+    void deleteVariableContract(QString var);
 
     /**
     * @brief Show/hide certain type of errors
@@ -314,6 +335,11 @@ public slots:
     void debugError(const ErrorItem &item);
 
     /**
+     * \brief bughunting report line
+     */
+    void bughuntingReportLine(const QString& line);
+
+    /**
      * \brief Clear log messages
      */
     void logClear();
@@ -328,6 +354,14 @@ public slots:
      */
     void logCopyComplete();
 
+    /** \brief Contract was double clicked => edit it */
+    void contractDoubleClicked(QListWidgetItem* item);
+
+    /** \brief Variable was double clicked => edit it */
+    void variableDoubleClicked(QListWidgetItem* item);
+
+    void editVariablesFilter(const QString &text);
+
 protected:
     /**
     * @brief Should we show a "No errors found dialog" every time no errors were found?
@@ -337,12 +371,20 @@ protected:
     Ui::ResultsView mUI;
 
     CheckStatistics *mStatistics;
+
+    bool eventFilter(QObject *target, QEvent *event);
 private slots:
     /**
      * @brief Custom context menu for Analysis Log
      * @param pos Mouse click position
      */
     void on_mListLog_customContextMenuRequested(const QPoint &pos);
+private:
+    QSet<QString> mFunctionContracts;
+    QSet<QString> mVariableContracts;
+
+    /** Current file shown in the code editor */
+    QString mCurrentFileName;
 };
 /// @}
 #endif // RESULTSVIEW_H

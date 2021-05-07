@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2019 Cppcheck team.
+ * Copyright (C) 2007-2020 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,17 +24,22 @@
 
 #include "check.h"
 #include "config.h"
-#include "valueflow.h"
+#include "errortypes.h"
+#include "utils.h"
 
-#include <cstddef>
 #include <string>
 #include <vector>
 
-class ErrorLogger;
+namespace ValueFlow {
+    class Value;
+}
+
 class Settings;
 class Token;
 class Tokenizer;
+class Function;
 class Variable;
+class ErrorLogger;
 
 /// @addtogroup Checks
 /// @{
@@ -82,19 +87,21 @@ public:
         checkOther.checkEvaluationOrder();
         checkOther.checkFuncArgNamesDifferent();
         checkOther.checkShadowVariables();
-        checkOther.checkConstArgument();
+        checkOther.checkKnownArgument();
         checkOther.checkComparePointers();
         checkOther.checkIncompleteStatement();
         checkOther.checkPipeParameterSize();
         checkOther.checkRedundantCopy();
         checkOther.clarifyCalculation();
         checkOther.checkPassByReference();
+        checkOther.checkConstVariable();
         checkOther.checkComparisonFunctionIsAlwaysTrueOrFalse();
         checkOther.checkInvalidFree();
         checkOther.clarifyStatement();
         checkOther.checkCastIntToCharAndBack();
         checkOther.checkMisusedScopedObject();
         checkOther.checkAccessOfMovedVariable();
+        checkOther.checkModuloOfOne();
     }
 
     /** @brief Clarify calculation for ".. a * b ? .." */
@@ -118,6 +125,8 @@ public:
 
     /** @brief %Check for function parameters that should be passed by reference */
     void checkPassByReference();
+
+    void checkConstVariable();
 
     /** @brief Using char variable as array index / as operand in bit operation */
     void checkCharVariable();
@@ -204,9 +213,11 @@ public:
     /** @brief %Check for shadow variables. Less noisy than gcc/clang -Wshadow. */
     void checkShadowVariables();
 
-    void checkConstArgument();
+    void checkKnownArgument();
 
     void checkComparePointers();
+
+    void checkModuloOfOne();
 
 private:
     // Error messages..
@@ -216,8 +227,9 @@ private:
     void clarifyCalculationError(const Token *tok, const std::string &op);
     void clarifyStatementError(const Token* tok);
     void cstyleCastError(const Token *tok);
-    void invalidPointerCastError(const Token* tok, const std::string& from, const std::string& to, bool inconclusive);
+    void invalidPointerCastError(const Token* tok, const std::string& from, const std::string& to, bool inconclusive, bool toIsInt);
     void passedByValueError(const Token *tok, const std::string &parname, bool inconclusive);
+    void constVariableError(const Variable *var, const Function *function);
     void constStatementError(const Token *tok, const std::string &type, bool inconclusive);
     void signedCharArrayIndexError(const Token *tok);
     void unknownSignCharArrayIndexError(const Token *tok);
@@ -226,6 +238,7 @@ private:
     void zerodivError(const Token *tok, const ValueFlow::Value *value);
     void nanInArithmeticExpressionError(const Token *tok);
     void redundantAssignmentError(const Token *tok1, const Token* tok2, const std::string& var, bool inconclusive);
+    void redundantInitializationError(const Token *tok1, const Token* tok2, const std::string& var, bool inconclusive);
     void redundantAssignmentInSwitchError(const Token *tok1, const Token *tok2, const std::string &var);
     void redundantCopyError(const Token *tok1, const Token* tok2, const std::string& var);
     void redundantCopyInSwitchError(const Token *tok1, const Token* tok2, const std::string &var);
@@ -245,7 +258,7 @@ private:
     void pointerLessThanZeroError(const Token *tok, const ValueFlow::Value *v);
     void unsignedPositiveError(const Token *tok, const ValueFlow::Value *v, const std::string &varname);
     void pointerPositiveError(const Token *tok, const ValueFlow::Value *v);
-    void SuspiciousSemicolonError(const Token *tok);
+    void suspiciousSemicolonError(const Token *tok);
     void negativeBitwiseShiftError(const Token *tok, int op);
     void redundantCopyError(const Token *tok, const std::string &varname);
     void incompleteArrayFillError(const Token* tok, const std::string& buffer, const std::string& function, bool boolean);
@@ -253,15 +266,16 @@ private:
     void commaSeparatedReturnError(const Token *tok);
     void redundantPointerOpError(const Token* tok, const std::string& varname, bool inconclusive);
     void raceAfterInterlockedDecrementError(const Token* tok);
-    void unusedLabelError(const Token* tok, bool inSwitch);
+    void unusedLabelError(const Token* tok, bool inSwitch, bool hasIfdef);
     void unknownEvaluationOrder(const Token* tok);
     static bool isMovedParameterAllowedForInconclusiveFunction(const Token * tok);
     void accessMovedError(const Token *tok, const std::string &varname, const ValueFlow::Value *value, bool inconclusive);
-    void funcArgNamesDifferent(const std::string & functionName, size_t index, const Token* declaration, const Token* definition);
+    void funcArgNamesDifferent(const std::string & functionName, nonneg int index, const Token* declaration, const Token* definition);
     void funcArgOrderDifferent(const std::string & functionName, const Token * declaration, const Token * definition, const std::vector<const Token*> & declarations, const std::vector<const Token*> & definitions);
-    void shadowError(const Token *var, const Token *shadowed, bool shadowVar);
-    void constArgumentError(const Token *tok, const Token *ftok, const ValueFlow::Value *value);
+    void shadowError(const Token *var, const Token *shadowed, std::string type);
+    void knownArgumentError(const Token *tok, const Token *ftok, const ValueFlow::Value *value, const std::string &varexpr, bool isVariableExpressionHidden);
     void comparePointersError(const Token *tok, const ValueFlow::Value *v1, const ValueFlow::Value *v2);
+    void checkModuloOfOneError(const Token *tok);
 
     void getErrorMessages(ErrorLogger *errorLogger, const Settings *settings) const OVERRIDE {
         CheckOther c(nullptr, settings, errorLogger);
@@ -271,7 +285,7 @@ private:
         // error
         c.zerodivError(nullptr, nullptr);
         c.misusedScopeObjectError(nullptr, "varname");
-        c.invalidPointerCastError(nullptr,  "float", "double", false);
+        c.invalidPointerCastError(nullptr,  "float *", "double *", false, false);
         c.negativeBitwiseShiftError(nullptr, 1);
         c.negativeBitwiseShiftError(nullptr, 2);
         c.checkPipeParameterSizeError(nullptr,  "varname", "dimension");
@@ -281,13 +295,13 @@ private:
         //performance
         c.redundantCopyError(nullptr,  "varname");
         c.redundantCopyError(nullptr, nullptr, "var");
-        c.redundantAssignmentError(nullptr, nullptr, "var", false);
 
         // style/warning
         c.checkComparisonFunctionIsAlwaysTrueOrFalseError(nullptr, "isless","varName",false);
         c.checkCastIntToCharAndBackError(nullptr, "func_name");
         c.cstyleCastError(nullptr);
         c.passedByValueError(nullptr, "parametername", false);
+        c.constVariableError(nullptr, nullptr);
         c.constStatementError(nullptr, "type", false);
         c.signedCharArrayIndexError(nullptr);
         c.unknownSignCharArrayIndexError(nullptr);
@@ -311,25 +325,31 @@ private:
         c.unsignedPositiveError(nullptr, nullptr, "varname");
         c.pointerLessThanZeroError(nullptr, nullptr);
         c.pointerPositiveError(nullptr, nullptr);
-        c.SuspiciousSemicolonError(nullptr);
+        c.suspiciousSemicolonError(nullptr);
         c.incompleteArrayFillError(nullptr,  "buffer", "memset", false);
         c.varFuncNullUBError(nullptr);
         c.nanInArithmeticExpressionError(nullptr);
         c.commaSeparatedReturnError(nullptr);
         c.redundantPointerOpError(nullptr,  "varname", false);
-        c.unusedLabelError(nullptr,  true);
-        c.unusedLabelError(nullptr,  false);
+        c.unusedLabelError(nullptr, false, false);
+        c.unusedLabelError(nullptr, false, true);
+        c.unusedLabelError(nullptr, true, false);
+        c.unusedLabelError(nullptr, true, true);
         c.unknownEvaluationOrder(nullptr);
         c.accessMovedError(nullptr, "v", nullptr, false);
         c.funcArgNamesDifferent("function", 1, nullptr, nullptr);
         c.redundantBitwiseOperationInSwitchError(nullptr, "varname");
-        c.shadowError(nullptr, nullptr, false);
-        c.shadowError(nullptr, nullptr, true);
-        c.constArgumentError(nullptr, nullptr, nullptr);
+        c.shadowError(nullptr, nullptr, "variable");
+        c.shadowError(nullptr, nullptr, "function");
+        c.shadowError(nullptr, nullptr, "argument");
+        c.knownArgumentError(nullptr, nullptr, nullptr, "x", false);
         c.comparePointersError(nullptr, nullptr, nullptr);
+        c.redundantAssignmentError(nullptr, nullptr, "var", false);
+        c.redundantInitializationError(nullptr, nullptr, "var", false);
 
         const std::vector<const Token *> nullvec;
         c.funcArgOrderDifferent("function", nullptr, nullptr, nullvec, nullvec);
+        c.checkModuloOfOneError(nullptr);
     }
 
     static std::string myName() {
@@ -389,7 +409,10 @@ private:
                "- find unused 'goto' labels.\n"
                "- function declaration and definition argument names different.\n"
                "- function declaration and definition argument order different.\n"
-               "- shadow variable.\n";
+               "- shadow variable.\n"
+               "- variable can be declared const.\n"
+               "- calculating modulo of one.\n"
+               "- known function argument, suspicious calculation.\n";
     }
 };
 /// @}

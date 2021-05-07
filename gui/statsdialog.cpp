@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2018 Cppcheck team.
+ * Copyright (C) 2007-2019 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,17 +15,19 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
+#include "statsdialog.h"
+
 #include <QPrinter>
 #include <QDate>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QTextDocument>
 #include <QWidget>
-#include <QString>
 #include <QClipboard>
 #include <QMimeData>
+
 #include "projectfile.h"
-#include "statsdialog.h"
 #include "checkstatistics.h"
 #include "common.h"
 
@@ -149,7 +151,7 @@ void StatsDialog::pdfExport()
                          .arg(tr("Information messages"))
                          .arg(mStatistics->getCount(CPPCHECK,ShowTypes::ShowInformation));
 
-    QString fileName = QFileDialog::getSaveFileName((QWidget*)0, tr("Export PDF"), QString(), "*.pdf");
+    QString fileName = QFileDialog::getSaveFileName((QWidget*)nullptr, tr("Export PDF"), QString(), "*.pdf");
     if (QFileInfo(fileName).suffix().isEmpty()) {
         fileName.append(".pdf");
     }

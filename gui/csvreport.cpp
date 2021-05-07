@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2017 Cppcheck team.
+ * Copyright (C) 2007-2020 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,12 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <QObject>
-#include <QString>
-#include <QDir>
-#include <QTextStream>
-#include "report.h"
 #include "csvreport.h"
+
+#include <QDir>
+#include "erroritem.h"
+#include "report.h"
 
 CsvReport::CsvReport(const QString &filename) :
     Report(filename)
@@ -43,7 +42,8 @@ bool CsvReport::create()
 
 void CsvReport::writeHeader()
 {
-    // No header for CSV report
+    // Added 5 columns to the header.
+    mTxtWriter << "File, Line, Severity, Id, Summary" << endl;
 }
 
 void CsvReport::writeFooter()
@@ -60,7 +60,6 @@ void CsvReport::writeError(const ErrorItem &error)
 
     const QString file = QDir::toNativeSeparators(error.errorPath.back().file);
     QString line = QString("%1,%2,").arg(file).arg(error.errorPath.back().line);
-    line += QString("%1,%2").arg(GuiSeverity::toString(error.severity)).arg(error.summary);
-
+    line += QString("%1,%2,%3").arg(GuiSeverity::toString(error.severity)).arg(error.errorId).arg(error.summary);
     mTxtWriter << line << endl;
 }

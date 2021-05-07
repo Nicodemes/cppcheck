@@ -1,6 +1,6 @@
 
-#include <fstream>
 #include <iostream>
+#include <fstream>
 
 #include "type2.h"
 
@@ -22,7 +22,7 @@ int main(int argc, char **argv)
     std::string str((std::istreambuf_iterator<char>(f)),
                     std::istreambuf_iterator<char>());
 
-    std::cout << generateCode2((const uint8_t *)str.data(), str.size()) << std::endl;
+    std::cout << generateCode2(reinterpret_cast<const uint8_t *>(str.data()), str.size()) << std::endl;
 
     return 0;
 }

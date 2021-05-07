@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2019 Cppcheck team.
+ * Copyright (C) 2007-2020 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,7 +23,8 @@
 
 #include "check.h"
 #include "config.h"
-#include "errorlogger.h"
+#include "errortypes.h"
+#include "utils.h"
 
 #include <ostream>
 #include <string>
@@ -33,6 +34,7 @@ class Settings;
 class Token;
 class Tokenizer;
 class Variable;
+class ErrorLogger;
 
 /// @addtogroup Checks
 /// @{
@@ -115,21 +117,21 @@ private:
     void invalidScanfError(const Token *tok);
     void wrongPrintfScanfArgumentsError(const Token* tok,
                                         const std::string &functionName,
-                                        unsigned int numFormat,
-                                        unsigned int numFunction);
+                                        nonneg int numFormat,
+                                        nonneg int numFunction);
     void wrongPrintfScanfPosixParameterPositionError(const Token* tok, const std::string& functionName,
-            unsigned int index, unsigned int numFunction);
-    void invalidScanfArgTypeError_s(const Token* tok, unsigned int numFormat, const std::string& specifier, const ArgumentInfo* argInfo);
-    void invalidScanfArgTypeError_int(const Token* tok, unsigned int numFormat, const std::string& specifier, const ArgumentInfo* argInfo, bool isUnsigned);
-    void invalidScanfArgTypeError_float(const Token* tok, unsigned int numFormat, const std::string& specifier, const ArgumentInfo* argInfo);
-    void invalidPrintfArgTypeError_s(const Token* tok, unsigned int numFormat, const ArgumentInfo* argInfo);
-    void invalidPrintfArgTypeError_n(const Token* tok, unsigned int numFormat, const ArgumentInfo* argInfo);
-    void invalidPrintfArgTypeError_p(const Token* tok, unsigned int numFormat, const ArgumentInfo* argInfo);
-    void invalidPrintfArgTypeError_uint(const Token* tok, unsigned int numFormat, const std::string& specifier, const ArgumentInfo* argInfo);
-    void invalidPrintfArgTypeError_sint(const Token* tok, unsigned int numFormat, const std::string& specifier, const ArgumentInfo* argInfo);
-    void invalidPrintfArgTypeError_float(const Token* tok, unsigned int numFormat, const std::string& specifier, const ArgumentInfo* argInfo);
-    void invalidLengthModifierError(const Token* tok, unsigned int numFormat, const std::string& modifier);
-    void invalidScanfFormatWidthError(const Token* tok, unsigned int numFormat, int width, const Variable *var, char c);
+            nonneg int index, nonneg int numFunction);
+    void invalidScanfArgTypeError_s(const Token* tok, nonneg int numFormat, const std::string& specifier, const ArgumentInfo* argInfo);
+    void invalidScanfArgTypeError_int(const Token* tok, nonneg int numFormat, const std::string& specifier, const ArgumentInfo* argInfo, bool isUnsigned);
+    void invalidScanfArgTypeError_float(const Token* tok, nonneg int numFormat, const std::string& specifier, const ArgumentInfo* argInfo);
+    void invalidPrintfArgTypeError_s(const Token* tok, nonneg int numFormat, const ArgumentInfo* argInfo);
+    void invalidPrintfArgTypeError_n(const Token* tok, nonneg int numFormat, const ArgumentInfo* argInfo);
+    void invalidPrintfArgTypeError_p(const Token* tok, nonneg int numFormat, const ArgumentInfo* argInfo);
+    void invalidPrintfArgTypeError_uint(const Token* tok, nonneg int numFormat, const std::string& specifier, const ArgumentInfo* argInfo);
+    void invalidPrintfArgTypeError_sint(const Token* tok, nonneg int numFormat, const std::string& specifier, const ArgumentInfo* argInfo);
+    void invalidPrintfArgTypeError_float(const Token* tok, nonneg int numFormat, const std::string& specifier, const ArgumentInfo* argInfo);
+    void invalidLengthModifierError(const Token* tok, nonneg int numFormat, const std::string& modifier);
+    void invalidScanfFormatWidthError(const Token* tok, nonneg int numFormat, int width, const Variable *var, char c);
     static void argumentType(std::ostream & os, const ArgumentInfo * argInfo);
     static Severity::SeverityType getSeverity(const ArgumentInfo *argInfo);
 

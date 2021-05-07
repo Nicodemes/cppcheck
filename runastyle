@@ -58,7 +58,7 @@ formatCplusplus "test/*.cpp"
 formatCplusplus "test/cfg/*.c"
 formatCplusplus "test/cfg/*.cpp"
 formatCplusplus "test/*.h"
-formatCplusplus "tools/*.cpp"
+formatCplusplusRecursive "tools/*.cpp"
 formatCplusplusRecursive "tools/*.h"
 formatCplusplusRecursive "samples/*.c"
 formatCplusplusRecursive "samples/*.cpp"
@@ -76,3 +76,4 @@ done
 
 formatXML man/cppcheck.1.xml
 formatXML cppcheck-errors.rng
+formatXML rules/*.xml

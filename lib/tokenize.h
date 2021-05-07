@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2019 Cppcheck team.
+ * Copyright (C) 2007-2021 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,7 +22,7 @@
 //---------------------------------------------------------------------------
 
 #include "config.h"
-#include "errorlogger.h"
+#include "errortypes.h"
 #include "tokenlist.h"
 
 #include <ctime>
@@ -36,6 +36,8 @@ class SymbolDatabase;
 class TimerResults;
 class Token;
 class TemplateSimplifier;
+class ErrorLogger;
+class Preprocessor;
 
 namespace simplecpp {
     class TokenList;
@@ -58,25 +60,25 @@ class CPPCHECKLIB Tokenizer {
     /** Class used in Tokenizer::setVarIdPass1 */
     class VariableMap {
     private:
-        std::map<std::string, unsigned int> mVariableId;
-        std::stack<std::list<std::pair<std::string, unsigned int> > > mScopeInfo;
-        mutable unsigned int mVarId;
+        std::map<std::string, int> mVariableId;
+        std::stack<std::list<std::pair<std::string,int> > > mScopeInfo;
+        mutable nonneg int mVarId;
     public:
         VariableMap();
         void enterScope();
         bool leaveScope();
         void addVariable(const std::string &varname);
         bool hasVariable(const std::string &varname) const;
-        std::map<std::string, unsigned int>::const_iterator find(const std::string &varname) const {
+        std::map<std::string,int>::const_iterator find(const std::string &varname) const {
             return mVariableId.find(varname);
         }
-        std::map<std::string, unsigned int>::const_iterator end() const {
+        std::map<std::string,int>::const_iterator end() const {
             return mVariableId.end();
         }
-        const std::map<std::string, unsigned int> &map() const {
+        const std::map<std::string,int> &map() const {
             return mVariableId;
         }
-        unsigned int *getVarId() const {
+        nonneg int *getVarId() const {
             return &mVarId;
         }
     };
@@ -107,10 +109,10 @@ public:
      * \param unknown set to true if it's unknown if the scope is noreturn
      * \return true if scope ends with a function call that might be 'noreturn'
      */
-    bool IsScopeNoReturn(const Token *endScopeToken, bool *unknown = nullptr) const;
+    bool isScopeNoReturn(const Token *endScopeToken, bool *unknown = nullptr) const;
 
     bool createTokens(std::istream &code, const std::string& FileName);
-    void createTokens(const simplecpp::TokenList *tokenList);
+    void createTokens(simplecpp::TokenList&& tokenList);
 
     bool simplifyTokens1(const std::string &configuration);
     /**
@@ -154,8 +156,6 @@ public:
     */
     bool simplifyTokenList1(const char FileName[]);
 
-    void SimplifyNamelessRValueReferences();
-
     /**
     * Most aggressive simplification of tokenlist
     *
@@ -169,7 +169,19 @@ public:
      * - All executable code.
      * - Unused types/variables/etc
      */
-    void simplifyHeaders();
+    void simplifyHeadersAndUnusedTemplates();
+
+    /**
+     * Remove extra "template" keywords that are not used by Cppcheck
+     */
+    void removeExtraTemplateKeywords();
+
+
+    /** Split up template right angle brackets.
+     * foo < bar < >> => foo < bar < > >
+     */
+    void splitTemplateRightAngleBrackets(bool check);
+
 
     /**
      * Deletes dead code between 'begin' and 'end'.
@@ -199,7 +211,7 @@ public:
      * @param type Token which will contain e.g. "int", "*", or string.
      * @return sizeof for given type, or 0 if it can't be calculated.
      */
-    unsigned int sizeOfType(const Token *type) const;
+    nonneg int sizeOfType(const Token *type) const;
 
     /**
      * Try to determine if function parameter is passed by value by looking
@@ -249,6 +261,11 @@ public:
 
     /** Remove macros in global scope */
     void removeMacrosInGlobalScope();
+
+    void addSemicolonAfterUnknownMacro();
+
+    // Remove C99 and CPP11 _Pragma(str)
+    void removePragma();
 
     /** Remove undefined macro in class definition:
       * class DLLEXPORT Fred { };
@@ -366,6 +383,9 @@ public:
      */
     Token * simplifyAddBracesPair(Token *tok, bool commandWithCondition);
 
+    // Convert "using ...;" to corresponding typedef
+    void simplifyUsingToTypedef();
+
     /**
      * typedef A mytype;
      * mytype c;
@@ -375,6 +395,10 @@ public:
      * A c;
      */
     void simplifyTypedef();
+
+    /**
+     */
+    bool isMemberFunction(const Token *openParen) const;
 
     /**
      */
@@ -403,13 +427,13 @@ public:
      * Utility function for simplifyKnownVariables. Get data about an
      * assigned variable.
      */
-    static bool simplifyKnownVariablesGetData(unsigned int varid, Token **_tok2, Token **_tok3, std::string &value, unsigned int &valueVarId, bool &valueIsPointer, bool floatvar);
+    static bool simplifyKnownVariablesGetData(nonneg int varid, Token **_tok2, Token **_tok3, std::string &value, nonneg int &valueVarId, bool &valueIsPointer, bool floatvar);
 
     /**
      * utility function for simplifyKnownVariables. Perform simplification
      * of a given variable
      */
-    bool simplifyKnownVariablesSimplify(Token **tok2, Token *tok3, unsigned int varid, const std::string &structname, std::string &value, unsigned int valueVarId, bool valueIsPointer, const Token * const valueToken, int indentlevel) const;
+    bool simplifyKnownVariablesSimplify(Token **tok2, Token *tok3, nonneg int varid, const std::string &structname, std::string &value, nonneg int valueVarId, bool valueIsPointer, const Token * const valueToken, int indentlevel) const;
 
     /** Simplify useless C++ empty namespaces, like: 'namespace %name% { }'*/
     void simplifyEmptyNamespaces();
@@ -424,6 +448,9 @@ public:
 
     /** Simplify "if else" */
     void elseif();
+
+    /** Simplify C++17/C++20 if/switch/for initialization expression */
+    void simplifyIfSwitchForInit();
 
     /** Simplify conditions
      * @return true if something is modified
@@ -484,6 +511,12 @@ public:
      */
     void simplifyFunctionParameters();
 
+    /** Simplify function level try blocks:
+     *  Convert "void f() try {} catch (int) {}"
+     *  to "void f() { try {} catch (int) {} }"
+     */
+    void simplifyFunctionTryCatch();
+
     /**
      * Simplify templates
      */
@@ -508,6 +541,8 @@ public:
     void simplifyExternC();
 
     void simplifyRoundCurlyParentheses();
+
+    void simplifyTypeIntrinsics();
 
     void simplifySQL();
 
@@ -550,6 +585,15 @@ public:
      */
     static const Token * isFunctionHead(const Token *tok, const std::string &endsWith, bool cpp);
 
+    void setPreprocessor(const Preprocessor *preprocessor) {
+        mPreprocessor = preprocessor;
+    }
+    const Preprocessor *getPreprocessor() const {
+        return mPreprocessor;
+    }
+
+    bool hasIfdef(const Token *start, const Token *end) const;
+
 private:
 
     /**
@@ -582,7 +626,7 @@ private:
      * Send error message to error logger about internal bug.
      * @param tok the token that this bug concerns.
      */
-    void cppcheckError(const Token *tok) const;
+    NORETURN void cppcheckError(const Token *tok) const;
 
     /**
      * Setup links for tokens so that one can call Token::link().
@@ -597,16 +641,16 @@ private:
 public:
 
     /** Syntax error */
-    void syntaxError(const Token *tok, const std::string code = "") const;
+    NORETURN void syntaxError(const Token *tok, const std::string &code = "") const;
 
     /** Syntax error. Unmatched character. */
-    void unmatchedToken(const Token *tok) const;
+    NORETURN void unmatchedToken(const Token *tok) const;
 
     /** Syntax error. C++ code in C file. */
-    void syntaxErrorC(const Token *tok, const std::string &what) const;
+    NORETURN void syntaxErrorC(const Token *tok, const std::string &what) const;
 
     /** Warn about unknown macro(s), configuration is recommended */
-    void unknownMacroError(const Token *tok1) const;
+    NORETURN void unknownMacroError(const Token *tok1) const;
 
 private:
 
@@ -628,6 +672,9 @@ private:
      */
     void validate() const;
 
+    /** Detect unknown macros and throw unknownMacro */
+    void reportUnknownMacros() const;
+
     /** Detect garbage code and call syntaxError() if found. */
     void findGarbageCode() const;
 
@@ -648,6 +695,17 @@ private:
      * Remove \__attribute\__ ((?))
      */
     void simplifyAttribute();
+
+    /**
+     * Remove \__cppcheck\__ ((?))
+     */
+    void simplifyCppcheckAttribute();
+
+    /** Remove alignas */
+    void removeAlignas();
+
+    /** Simplify c++20 spaceship operator */
+    void simplifySpaceshipOperator();
 
     /**
      * Remove keywords "volatile", "inline", "register", and "restrict"
@@ -715,6 +773,9 @@ private:
      */
     void simplifyOperatorName();
 
+    /** simplify overloaded operators: 'obj(123)' => 'obj . operator() ( 123 )' */
+    void simplifyOverloadedOperators();
+
     /**
     * Remove [[attribute]] (C++11 and later) from TokenList
     */
@@ -735,6 +796,13 @@ private:
      * Convert C++17 style nested namespace to older style
      */
     void simplifyNestedNamespace();
+
+    /**
+     * Simplify coroutines - just put parentheses around arguments for
+     * co_* keywords so they can be handled like function calls in data
+     * flow.
+     */
+    void simplifyCoroutines();
 
     /**
     * Prepare ternary operators with parentheses so that the AST can be created
@@ -758,19 +826,19 @@ private:
 
     void setVarIdClassDeclaration(const Token * const startToken,
                                   const VariableMap &variableMap,
-                                  const unsigned int scopeStartVarId,
-                                  std::map<unsigned int, std::map<std::string,unsigned int> >& structMembers);
+                                  const nonneg int scopeStartVarId,
+                                  std::map<int, std::map<std::string,int> >& structMembers);
 
     void setVarIdStructMembers(Token **tok1,
-                               std::map<unsigned int, std::map<std::string, unsigned int> >& structMembers,
-                               unsigned int *varId);
+                               std::map<int, std::map<std::string, int> >& structMembers,
+                               nonneg int *varId) const;
 
     void setVarIdClassFunction(const std::string &classname,
                                Token * const startToken,
                                const Token * const endToken,
-                               const std::map<std::string, unsigned int> &varlist,
-                               std::map<unsigned int, std::map<std::string, unsigned int> >& structMembers,
-                               unsigned int *varId_);
+                               const std::map<std::string,int> &varlist,
+                               std::map<int, std::map<std::string,int> >& structMembers,
+                               nonneg int *varId_);
 
     /**
      * Simplify e.g. 'return(strncat(temp,"a",1));' into
@@ -785,6 +853,8 @@ private:
 
     /** Find end of SQL (or PL/SQL) block */
     static const Token *findSQLBlockEnd(const Token *tokSQLStart);
+
+    bool operatorEnd(const Token * tok) const;
 
 public:
 
@@ -810,7 +880,7 @@ public:
      * 1=1st simplifications
      * 2=2nd simplifications
      */
-    void printDebugOutput(unsigned int simplification) const;
+    void printDebugOutput(int simplification) const;
 
     void dump(std::ostream &out) const;
 
@@ -820,7 +890,7 @@ public:
      * Get variable count.
      * @return number of variables
      */
-    unsigned int varIdCount() const {
+    nonneg int varIdCount() const {
         return mVarId;
     }
 
@@ -875,20 +945,22 @@ public:
         return mSettings;
     }
 
-private:
+    void calculateScopes();
+
     /** Disable copy constructor */
     Tokenizer(const Tokenizer &) = delete;
 
     /** Disable assignment operator */
     Tokenizer &operator=(const Tokenizer &) = delete;
 
+private:
     Token *processFunc(Token *tok2, bool inOperator) const;
 
     /**
     * Get new variable id.
     * @return new variable id
     */
-    unsigned int newVarId() {
+    nonneg int newVarId() {
         return ++mVarId;
     }
 
@@ -911,13 +983,13 @@ private:
     std::string mConfiguration;
 
     /** sizeof information for known types */
-    std::map<std::string, unsigned int> mTypeSize;
+    std::map<std::string, int> mTypeSize;
 
     /** variable count */
-    unsigned int mVarId;
+    nonneg int mVarId;
 
     /** unnamed count "Unnamed0", "Unnamed1", "Unnamed2", ... */
-    unsigned int mUnnamedCount;
+    nonneg int mUnnamedCount;
 
     /**
      * was there any templates? templates that are "unused" are
@@ -934,6 +1006,8 @@ private:
     /** Tokenizer maxtime */
     const std::time_t mMaxTime;
 #endif
+
+    const Preprocessor *mPreprocessor;
 };
 
 /// @}

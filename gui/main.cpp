@@ -1,6 +1,6 @@
 /*
  * Cppcheck - A tool for static C/C++ code analysis
- * Copyright (C) 2007-2018 Cppcheck team.
+ * Copyright (C) 2007-2021 Cppcheck team.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,12 +18,12 @@
 
 #include <QApplication>
 #include <QCoreApplication>
-#include <QTextCodec>
 #include <QMetaType>
 #include <QStringList>
 #include <QSettings>
 #ifdef _WIN32
 #include <QMessageBox>
+#include "aboutdialog.h"
 #else
 #include <iostream>
 #endif
@@ -31,7 +31,6 @@
 #include "common.h"
 #include "mainwindow.h"
 #include "erroritem.h"
-#include "aboutdialog.h"
 #include "translationhandler.h"
 
 
@@ -73,17 +72,17 @@ int main(int argc, char *argv[])
     TranslationHandler* th = new TranslationHandler(&app);
     th->setLanguage(settings->value(SETTINGS_LANGUAGE, th->suggestLanguage()).toString());
 
-    if (!CheckArgs(app.arguments()))
+    if (!CheckArgs(QApplication::arguments()))
         return 0;
 
-    app.setWindowIcon(QIcon(":cppcheck-gui.png"));
+    QApplication::setWindowIcon(QIcon(":cppcheck-gui.png"));
 
     // Register this metatype that is used to transfer error info
     qRegisterMetaType<ErrorItem>("ErrorItem");
 
     MainWindow window(th, settings);
     window.show();
-    return app.exec();
+    return QApplication::exec();
 }
 
 // Check only arguments needing action before GUI is shown.
